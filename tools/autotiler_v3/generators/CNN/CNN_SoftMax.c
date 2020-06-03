@@ -107,8 +107,8 @@ void KerParSoftMax_fp(KerSoftMax_fp_T *Arg)
 	gap_waitbarrier(0);
 	if (CoreId==0) {
 		M = Reduct[0];
-		// for (int i=1; i<gap_ncore(); i++) M = Max(M, Reduct[i]);
-		for (int i=1; i<8; i++) M = Max(M, Reduct[i]);
+		for (int i=1; i<gap_ncore(); i++) M = Max(M, Reduct[i]);
+		//for (int i=1; i<8; i++) M = Max(M, Reduct[i]);
 		Reduct[0] = M;
 
 	}
@@ -127,8 +127,8 @@ void KerParSoftMax_fp(KerSoftMax_fp_T *Arg)
 	gap_waitbarrier(0);
 	if (CoreId==0) {
 		Sum = 0;
-		// for (int i=0; i<gap_ncore(); i++) Sum += Reduct[i];
-		for (int i=0; i<8; i++) Sum += Reduct[i];
+		for (int i=0; i<gap_ncore(); i++) Sum += Reduct[i];
+		//for (int i=0; i<8; i++) Sum += Reduct[i];
 		Reduct[0] = Sum;
 	}
 	gap_waitbarrier(0);
@@ -208,8 +208,8 @@ void KerParSoftMax_fps(KerSoftMax_fps_T *Arg)
 	gap_waitbarrier(0);
 	if (CoreId==0) {
 		M = Reduct[0];
-		// for (int i=1; i<gap_ncore(); i++) M = Max(M, Reduct[i]);
-		for (int i=1; i<8; i++) M = Max(M, Reduct[i]);
+		for (int i=1; i<gap_ncore(); i++) M = Max(M, Reduct[i]);
+		//for (int i=1; i<8; i++) M = Max(M, Reduct[i]);
 		Reduct[0] = M;
 
 	}
@@ -228,13 +228,12 @@ void KerParSoftMax_fps(KerSoftMax_fps_T *Arg)
 	gap_waitbarrier(0);
 	if (CoreId==0) {
 		Sum = 0;
-		// for (int i=0; i<gap_ncore(); i++) Sum += Reduct[i];
-		for (int i=0; i<8; i++) Sum += Reduct[i];
+		for (int i=0; i<gap_ncore(); i++) Sum += Reduct[i];
 		Reduct[0] = Sum;
 	}
+	gap_waitbarrier(0);
 	Sum = Reduct[0];
 	InvSum = ((FP2FIX(1.0, 15)<<15)/Sum);
-	gap_waitbarrier(0);
 	for (int i=First; i<Last; i++) Out[i] = Abs(gap_roundnorm_reg(Out[i]*InvSum, 15));
 	gap_waitbarrier(0);
 

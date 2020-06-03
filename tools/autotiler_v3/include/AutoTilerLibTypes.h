@@ -33,45 +33,116 @@ typedef enum {
 
 	/* Primitive operations */
 	KOP_SETBIAS,
+	KOP_SETBIAS_DP,
+        KOP_CONV_HWCE,
         KOP_CONV,
         KOP_CONV_DP,
         KOP_CONV_DW,
+        KOP_CONV_DWDP,
 	KOP_DP_REDUCT,
 	KOP_DP_REDUCT_IO,
+	KOP_DP_REDUCT_MULBIAS,
+	KOP_DP_REDUCT_IO_MULBIAS,
+	KOP_DP_REDUCT_MULBIAS_SCALAR,
+	KOP_DP_REDUCT_IO_MULBIAS_SCALAR,
         KOP_MAXPOOL,
         KOP_AVGPOOL,
+        KOP_GLOBAL_MAXPOOL,
+        KOP_GLOBAL_MAXPOOL_REDUCT,
+        KOP_GLOBAL_AVGPOOL,
+        KOP_GLOBAL_AVGPOOL_REDUCT,
         KOP_RELU,
+	KOP_RELUN,
+	KOP_HSIGMOID,
+	KOP_HSWISH,
+	KOP_LEAKYRELU,
         KOP_LINEAR,
+        KOP_LINEAR_DP,
+	KOP_DP_REDUCT_LINEAR,
         KOP_MATADD,
+        KOP_MATADD_DYNADJUST,
         KOP_MATMUL,
+        KOP_MATMUL_SM1,
+        KOP_MATMUL_SCALE,
+        KOP_MATMUL_SCALE_SCALAR,
+        KOP_MATMUL_SCALE_SM1,
+        KOP_MATMUL_SCALE_SCALAR_SM1,
+	KOP_MATSCALE_VECTOR,
+	KOP_MATSCALE_SCALAR,
+	KOP_MATSCALE_VECTOR_SCALAR,
+	KOP_MATVECTMUL,
+	KOP_MATTRANSP,
+	KOP_MATPERM_CHW2CWH,
+	KOP_MATPERM_CHW2HWC,
+	KOP_MATPERM_CHW2WHC,
+	KOP_MATPERM_CHW2WCH,
+	KOP_MATPERM_CHW2HCW,
         KOP_SOFTMAX,
+	KOP_EXPAND,
+	KOP_COLLAPSE,
 
 	/* Grouped operations */
         KOP_CONV_RELU,
+        KOP_CONV_RELUN,
         KOP_CONV_MAXPOOL,
         KOP_CONV_MAXPOOL_RELU,
+        KOP_CONV_MAXPOOL_RELUN,
         KOP_CONV_AVGPOOL,
         KOP_CONV_AVGPOOL_RELU,
+        KOP_CONV_AVGPOOL_RELUN,
+
         KOP_CONV_DP_RELU,
+        KOP_CONV_DP_RELUN,
         KOP_CONV_DP_MAXPOOL,
         KOP_CONV_DP_MAXPOOL_RELU,
+        KOP_CONV_DP_MAXPOOL_RELUN,
         KOP_CONV_DP_AVGPOOL,
         KOP_CONV_DP_AVGPOOL_RELU,
+        KOP_CONV_DP_AVGPOOL_RELUN,
 
         KOP_CONV_DW_RELU,
+        KOP_CONV_DW_RELUN,
         KOP_CONV_DW_MAXPOOL,
         KOP_CONV_DW_MAXPOOL_RELU,
+        KOP_CONV_DW_MAXPOOL_RELUN,
         KOP_CONV_DW_AVGPOOL,
         KOP_CONV_DW_AVGPOOL_RELU,
+        KOP_CONV_DW_AVGPOOL_RELUN,
+
+        KOP_CONV_DWDP_RELU,
+        KOP_CONV_DWDP_RELUN,
+        KOP_CONV_DWDP_MAXPOOL,
+        KOP_CONV_DWDP_MAXPOOL_RELU,
+        KOP_CONV_DWDP_MAXPOOL_RELUN,
+        KOP_CONV_DWDP_AVGPOOL,
+        KOP_CONV_DWDP_AVGPOOL_RELU,
+        KOP_CONV_DWDP_AVGPOOL_RELUN,
 
         KOP_MAXPOOL_RELU,
+        KOP_MAXPOOL_RELUN,
         KOP_AVGPOOL_RELU,
+        KOP_AVGPOOL_RELUN,
         KOP_LINEAR_RELU,
+        KOP_LINEAR_RELUN,
         KOP_MATADD_RELU,
+        KOP_MATADD_RELUN,
+        KOP_MATMUL_RELU,
+        KOP_MATMUL_RELUN,
 
 	KOP_LAST
 
 } KernelOper_T;
+
+#if 0
+typedef enum {
+        KACT_NONE = 0,
+        KACT_RELU,
+        KACT_RELUN,
+        KACT_HSIGMOID,
+        KACT_HSWISH,
+        KACT_LEAKY,
+} CNN_ActivationOper_T;
+#endif
 
 typedef enum {
 	PAD_LEFT, 		/* All padding elements are inserted on the left/top */
@@ -114,6 +185,7 @@ typedef enum {
 	KER_ITER_LAST=7		/**< Marker for last */
 } KernelIteratorT;
 /// @cond PrivateStuff
+#define MAX_ARG_DIM 5
 #define KER_ITER_TILE_MAX 3
 #define IS_TILED_SPACE(Space) ((Space)<KER_ITER_TILE_MAX)
 #define IterSpaceToTile(Space) (((Space)==0)?O_TILE0:(((Space)==1)?O_TILE1:(((Space)==2)?O_TILE2:0)))
@@ -143,6 +215,7 @@ It can also be called on all the available cores in the clusters, this is a para
 typedef enum {
 	CALL_SEQUENTIAL=0,	/**< Call the related basic kernel only on master core */
 	CALL_PARALLEL=1,	/**< Call the related basic kernel on all available cores */
+	CALL_SEQUENTIAL_STRUCT=2,/**< Call the related basic kernel only on master core but pass all arguments through one structure */
 } KernelCallTypeT;
 
 /**
@@ -199,30 +272,6 @@ typedef enum {
 
 extern KernelCallLocationT IterCallLocation[][CALL_LAST];
 
-#define LOC_INNER_LOOP			0
-#define LOC_INNER_LOOP_PROLOG		1
-#define LOC_INNER_LOOP_EPILOG		2
-
-#define LOC_INNER_LOOP1			3
-#define LOC_INNER_LOOP1_PROLOG		4
-#define LOC_INNER_LOOP1_EPILOG		5
-
-#define LOC_INNER_LOOP2			6
-#define LOC_INNER_LOOP2_PROLOG		7
-#define LOC_INNER_LOOP2_EPILOG		8
-
-#define LOC_IN_PLANE			9
-#define LOC_IN_PLANE_PROLOG		10
-#define LOC_IN_PLANE_EPILOG		11
-
-#define LOC_OUT_PLANE			12
-#define LOC_OUT_PLANE_PROLOG		13
-#define LOC_OUT_PLANE_EPILOG		14
-
-#define LOC_IN_OUT_PLANE		15
-#define LOC_IN_OUT_PLANE_PROLOG		16
-#define LOC_IN_OUT_PLANE_EPILOG		17
-
 /**
 @brief User kernel tiling orientation
 
@@ -240,20 +289,17 @@ typedef enum {
 /**
 @brief User kernel argument constraints
 
-User kernel argument constraints
+User kernel argument constraints. Max 16 of them
 */
 typedef enum {
 	OBJ_CONSTRAINTS_NONE = 0,		/**< No constraints on this user kernel argument */
-	OBJ_CONSTRAINTS_EVEN = (1<<1),		/**< Variable tile size generated for this user kernel should be even */
-	OBJ_CONSTRAINTS_ODD = (1<<2),		/**< Variable tile size generated for this user kernel should be odd */
-	OBJ_CONSTRAINTS_ONEPREFTILE = (1<<3),	/**< This user kernel argument has a prefered tile variable size, use only a single tile for it */
-	OBJ_CONSTRAINTS_TILE_HOR = (1<<4),	/**< Force this kernel argument to be tiled horizontaly */
-	OBJ_CONSTRAINTS_TILE_VER = (1<<5),	/**< Force this kernel argument to be tiled verticaly */
-	OBJ_CONSTRAINTS_PAD_REM = (1<<6),	/**< When argument has non integer dim ratio use last tile to recover missing elements if possible */
-	OBJ_CONSTRAINTS_DROP_REM = (1<<7),	/**< When argument has non integer dim ratio simply drop them */
-	OBJ_CONSTRAINTS_DYNAMIC = (1<<8),	/**< When argument has non integer dim ratio dynamically evaluate tile size using DimRatio */
-	OBJ_CONSTRAINTS_2D = (1<<9),		/**< Argument is 2D strided */
-	OBJ_CONSTRAINTS_3D = (1<<10),
+	OBJ_CONSTRAINTS_ONEPREFTILE = (1<<0),	/**< This user kernel argument has a prefered tile variable size, use only a single tile for it */
+	OBJ_CONSTRAINTS_TILE_HOR = (1<<1),	/**< Force this kernel argument to be tiled horizontaly */
+	OBJ_CONSTRAINTS_TILE_VER = (1<<2),	/**< Force this kernel argument to be tiled verticaly */
+	OBJ_CONSTRAINTS_PAD_REM = (1<<3),	/**< When argument has non integer dim ratio use last tile to recover missing elements if possible */
+	OBJ_CONSTRAINTS_DROP_REM = (1<<4),	/**< When argument has non integer dim ratio simply drop them */
+	OBJ_CONSTRAINTS_DYNAMIC = (1<<5),	/**< When argument has non integer dim ratio dynamically evaluate tile size using DimRatio */
+	OBJ_CONSTRAINTS_2D = (1<<6),		/**< Argument is 2D strided */
 } KernelArgConstraints_T;
 
 /**
@@ -273,26 +319,29 @@ typedef enum {
 	KER_ARG_TILE_USEDH = 8,		/**< Current tile used height */
 	KER_ARG_TILE_W0 = 9,		/**< Tile standard width (not the one for the last iteration that is potentially smaller) */
 	KER_ARG_TILE_H0 = 10,		/**< Tile standard height (not the one for the last iteration that is potentially smaller) */
-	KER_ARG = 11,			/**< User kernel argument name */
+	KER_ARG = 11,			/**< User kernel argument base */
 	KER_ARG_W = 12,			/**< User kernel argument width */
 	KER_ARG_H = 13,			/**< User kernel argument height */
 	KER_ARG_NTILES = 14,		/**< Number of tiles for related user kernel argument */
-	KER_ARG_TILEINDEX = 15,		/**< Current tile index for related user kernel argument, starts at 0 */
-	KER_ARG_TILE_BASE = 16,		/**< Current tile base in line or column unit, when argument is dynamic it is computed at runtime */
-	KER_ARG_IT_INDEX = 17,		/**< Actual value of iterator attached to ItSpace */
-	KER_ARG_PAD = 18,		/**< Actual padding of plane associated to arg (left,right,top,bottom) as a v4s */
-	KER_ARG_TILE_PAD = 19,		/**< Actual padding of tile associated to arg (left,right,top,bottom) as a v4s */
-	KER_ARG_PARTILE_DIM = 20,	/**< Actual dimension of a parametric space */
-	KER_ARG_PARTILE_SIZE = 21,	/**< Size of a tile from a parametric space */
-	KER_ARG_LOADEDPARTILE_SIZE = 22,/**< Size of a tile from a parametric space, in case the related subspace has been promoted to partial buffer returns the dimension of this subspace otherwise is equal to KER_ARG_PARTILE_SIZE */
+	KER_ARG_TILEFIRST = 15,		/**< Predicate, != 0 if if current tile is the first one */
+	KER_ARG_TILELAST = 16,		/**< Predicate, != 0 if current tile is the last one */
+	KER_ARG_TILEINDEX = 17,		/**< Current tile index for related user kernel argument, starts at 0 */
+	KER_ARG_TILE_BASE = 18,		/**< Current tile base in line or column unit, when argument is dynamic it is computed at runtime */
+	KER_ARG_IT_INDEX = 19,		/**< Actual value of iterator attached to ItSpace */
+	KER_ARG_PAD = 20,		/**< Actual padding of a feature space associated to arg (left,right,top,bottom) as a v4s */
+	KER_ARG_TILE_PAD = 21,		/**< Actual padding of tile associated to arg (left,right,top,bottom) as a v4s */
+	KER_ARG_PARTILE_DIM = 22,	/**< Actual dimension of a parametric space */
+	KER_ARG_PARTILE_SIZE = 23,	/**< Size of a tile from a parametric space */
+	KER_ARG_LOADEDPARTILE_SIZE = 24,/**< Size of a tile from a parametric space, in case the related subspace has been promoted to partial buffer returns the dimension of this subspace otherwise is equal to KER_ARG_PARTILE_SIZE */
+	KER_IT_INDEX = 25,		/**< Actual value of a given kernel iterator */
 
-	TC_ARG = 23,			/**< A C argument */
-	TC_IMM = 24,			/**< An immediate int value */
-	TC_USYMB = 25,			/**< A user defined symbol */
-	TC_KDIM = 26,			/**< One of the user Kernel Dimensions */
-	TC_ARG_IND = 27,		/**< An indirection on a C argument */
-	TC_ARG_IND_IT_INDEX = 28, 	/**< An indirection on a C argument with respect to actual value of ItSpace */
-	TC_ARG_PLUS_IT_INDEX = 29, 	/**< A C argument added to actual value of ItSpace, ItSpace multiplied by a constant */
+	TC_ARG = 26,			/**< A C argument */
+	TC_IMM = 27,			/**< An immediate int value */
+	TC_USYMB = 28,			/**< A user defined symbol */
+	TC_KDIM = 29,			/**< One of the user Kernel Dimensions */
+	TC_ARG_IND = 30,		/**< An indirection on a C argument */
+	TC_ARG_IND_IT_INDEX = 31, 	/**< An indirection on a C argument with respect to actual value of ItSpace */
+	TC_ARG_PLUS_IT_INDEX = 32, 	/**< A C argument added to actual value of ItSpace, ItSpace multiplied by a constant */
 
 
 	/* Deprecated */
@@ -457,7 +506,10 @@ typedef enum {
 	BIND_OP_MULT=4,
 	BIND_OP_DIV=5,
 	BIND_OP_MOD=6,
-	BIND_OP_LAST=7,
+	BIND_OP_LSHIFT=7,
+	BIND_OP_RSHIFT=8,
+	BIND_OP_AT_INDEX=9,
+	BIND_OP_LAST=10,
 } ArgBindingOper;
 
 /* Internal tiler data structures */
@@ -572,7 +624,7 @@ typedef struct A_Kernel_Arg_T Kernel_Arg_T;
 
 typedef enum {UNDEF_MEM=0, MEM_L3, MEM_L2, MEM_L1, MEM_LAST} MemHierarchy_T;
 
-typedef enum {ARG_SCOPE_UNDEF, ARG_SCOPE_ARG, ARG_SCOPE_GLOBAL, ARG_SCOPE_LOCAL} ArgScope_T;
+typedef enum {ARG_SCOPE_UNDEF, ARG_SCOPE_ARG, ARG_SCOPE_ARG_ALLOC, ARG_SCOPE_GLOBAL, ARG_SCOPE_LOCAL} ArgScope_T;
 typedef enum {ARG_DIR_UNDEF, ARG_DIR_IN, ARG_DIR_CONSTIN, ARG_DIR_OUT, ARG_DIR_INOUT} ArgDirection_T;
 typedef enum {
 	AT_MEM_UNDEF,
@@ -588,6 +640,13 @@ typedef enum {
 	AT_MEM_LAST
 } AT_MemLocation_T;
 
+typedef enum {
+	AT_DUMP_CONSTANT_IN = 1,
+	AT_DUMP_IN = 2,
+	AT_DUMP_OUT = 4,
+} AT_DumpTensor_T;
+
+#define IS_EXTERNAL_MEM(Mem) (((Mem)>=AT_MEM_L3_HRAM) && ((Mem)<=AT_MEM_L3_MRAMFLASH))
 #define IS_L3_RAM(Mem) (((Mem)>=AT_MEM_L3_HRAM) && ((Mem)<=AT_MEM_L3_OSPIRAM))
 #define IS_FLASH_LOC(Loc) (((Loc)==AT_MEM_L3_HFLASH)||((Loc)==AT_MEM_L3_QSPIFLASH)||((Loc)==AT_MEM_L3_OSPIFLASH)||((Loc)==AT_MEM_L3_MRAMFLASH))
 #define IS_VALID_MEM(Mem) (((Mem)>=AT_MEM_L3_HRAM) && ((Mem)<=AT_MEM_L1))
@@ -610,6 +669,8 @@ typedef struct {
 	ConstInit_T *Init;		/* How to initialize in case Kernel argument is a constant */
 	Kernel_Arg_T *KerArg;		/* In case C arg is referenced into a Ker Arg gives a straight access to this kernel arguement */
 	GraphEdgeWeb_T *GraphSymbol;	/* Pointer to related CNN graph argument */
+	NameT *ExportSymbolName;	/* For Graph CArg allocated by the autotiler external name to be used to export CArg address to outside world */
+	NameT *ExportSymbolLoc;		/* For Graph CArg allocated by the autotiler external name to be used to export CArg mem location to outside world */
 } CArg_Descriptor_T;
 
 #define HAS_ARG_INFO(Arg)	((Arg) && (Arg)->CArg && (Arg)->CArg->ArgInfo)
@@ -627,6 +688,7 @@ typedef struct {
 	NameT *ValueKernelArg;		/* When a second C arg is needed */
 	KernelIteratorT ItSpace;	/* In case an iterator name is needed */
 	CArg_Descriptor_T *ArgInfo;
+	NameT *KerArgAccessType;
 } CKernel_Arg_T;
 
 typedef enum {GNA_UNDEF, GNA_IN, GNA_OUT, GNA_INOUT} GraghNodeArgT;
@@ -645,6 +707,7 @@ typedef struct {
 	CKernel_Arg_T *AliasTargetArgDescr;
 	CKernel_Arg_T *SourceArgDescr;
 	KernelIteratorT ItSpace;	/* In case an iterator name is needed */
+	NameT *KerArgAccessType;
 } ArgBindingDescr_T;
 
 typedef struct {
@@ -670,6 +733,10 @@ typedef struct {
 	char UsedPointer[2*CG_MAX_PIPE_DEPTH+1];	/* To track usage of tile pointers for proper variable declaration */
 	char UsedSize[2*CG_MAX_PIPE_DEPTH+1];		/* To track size of tiles for proper variable declaration */
 	char UsedLength[2*CG_MAX_PIPE_DEPTH+1];		/* To tack 2D length of tiles (if arg is 2D) for proper variable declaration */
+	int ArgNDim;					/* Number of dimensions of this argumentt */
+	int *ArgDim;					/* Space dimension from outer to inner, most inner dim is item size */
+	unsigned int TileLineInterleave;		/* In case related arg is 2D parametric and constant interleave tile lines by group of TileLineInterleave lines,
+							   remainder is kept non interleaved */
 } KerArgInfos_T;
 #define TILE_PTR(PipeOff)	((PipeOff) + CG_MAX_PIPE_DEPTH)
 
@@ -697,8 +764,9 @@ typedef struct A_Kernel_Arg_T {
 	unsigned int Height;
 	unsigned int UsedHeight;
 	unsigned int UsedH;
-	int Overlap;
+	int TileOverlap;		/* By how much 2 adjacent tiles should overlap, can be negative in case of non unit stride */
 	unsigned int DimRatio;
+	float        FDimRatio;
 	unsigned int DimOff;
 	unsigned int DimRem;
 	unsigned int Constraints;
@@ -707,9 +775,10 @@ typedef struct A_Kernel_Arg_T {
 	unsigned int Pad[4];
 	unsigned int ArgPad[4];
 	int ItemSize;
+	int RawItemSize;
 	unsigned int MoveSize[4];	/* [D1][D0] or [D0][T] or [T] D1,D0 parameteric spaces, T tileable space. D1/D0/T=0 Std tile, D1/D0/T=1 Last Tile */
 	unsigned int MoveStride;
-	unsigned int MoveStride1D;
+	unsigned int MoveStride1D[2];
 	unsigned int Length2D[2];	/* 0: Standard tile, 1: last tile */
 	unsigned int Stride2D;
 	unsigned int ArgStride;
@@ -746,8 +815,10 @@ typedef struct A_Object_T {
 	unsigned int ArgStride;
 	unsigned int BottomBuffer;
 	unsigned int TopBuffer;
+	unsigned int TileWPadAlign; 	/* Number of points to be added to the width of the tile, object should be O_TILED */
 	int ItemSize;
-	int Overlap;
+	int RawItemSize;
+	int TileOverlap;		/* By how much 2 adjacent tiles should overlap, can be negative in case of non unit stride */
 	unsigned int Alignment;
 	unsigned int PreferedTileSize;
 	unsigned int PrefRem;		/* Tile size should be Ts = PrefRem + K * PreferedTileSize */
@@ -770,11 +841,47 @@ typedef struct A_Object_T {
 
 typedef enum {
 	AT_KERINFO_OPER,
+	AT_KERINFO_BANDWIDTH,
 } AT_KernelInfo_T;
 
 typedef struct {
-	unsigned int Oper;
+	unsigned long long int Oper;
+	unsigned long long int Bandwidth;
 } KernelInfos_T;
+
+/* Stacked tensor:
+ 	Can be used in the following context;
+		UserKernelGroup
+		Graph
+
+ 	Out = Stack(In1, ..., InN)
+
+	Out is expected to be a Kernel Group Kernel Argument or a non constant Graph symbol local or out
+	In1 .. InN are expected to be variable used in call sequence of a kernel group or node sequence in a graph
+		in both cases they are argument of a user kernel (or kernel group )and as such are related to
+		the user kernel arg (UKAi, i in 1..N) of this argument in the designated user kernel (kernel group).
+	       	UKA must exist, if not it is an error (for example being C with no related K arg)
+		Ini should not be defined neither as a C argument nor as a Kernel argument since it is meant to be
+		substituted by Out + Offset
+		UKAi as a defined size UKASi:
+	The effect of Stack is as follow:
+		In1 = Out
+		In2 = Out + UKAS1
+		...
+		InN = Out + Sum(UKAi, i in 1..(N-1))
+	Each occurence of Ini is replaced by Out + Offset, Offset being defined as above
+*/
+
+typedef struct A_StackedTensors_T StackedTensors_T;
+typedef struct A_StackedTensors_T {
+        NameT *OutTensor;		/* Name of the variable usd to designate a group of stacked variables */
+        CKernel_Arg_T *OutTensor_CKerArg;
+        Kernel_Arg_T *OutTensor_KerArg;
+        int TensorInCount;
+        NameT **InTensors;
+        int *InTensorsSize;
+        StackedTensors_T *Next;
+} StackedTensors_T;
 
 typedef struct A_Kernel_T {
 	NameT *Name;
@@ -782,10 +889,10 @@ typedef struct A_Kernel_T {
 	unsigned int Last;		/* For Kernel group only */
 	unsigned int Instance;
 	unsigned int InGroup;
+	int IsUsed;
 	InlineModeT  InlineMode;
 	KernelOptimizationT KerOpt;
 	Tile_Orientation_T Orientation;
-	// unsigned int Dimension;
 	unsigned int Iteration[KER_ITER_TILE_MAX];
 	unsigned int RemIteration[KER_ITER_TILE_MAX];
 	KernelIterationSpaceT *KernelIterSpace;
@@ -794,6 +901,7 @@ typedef struct A_Kernel_T {
 	Kernel_Arg_T **RefArg;
 	unsigned int CArgCount;
 	CKernel_Arg_T **CArg;
+	StackedTensors_T *StackedTensors;
 	unsigned int CCallsCount;
 	CKernelCall_T **CCalls;
 	unsigned int BaseIndex;
@@ -805,11 +913,20 @@ typedef struct A_Kernel_T {
 } Kernel_T;
 
 typedef struct {
-	int TileOrientation;	/* Set Tiling orientation TILE_HOR TILE_VER */
-	int ParallelFeatures;	/* Parallelize along channels */
-	int ForceDPconv;	/* Forces double precision convolution*/
-	int UseHwCE;		/* Enable HW CE */
+	char TileOrientation;	/* Set Tiling orientation TILE_HOR TILE_VER */
+	char ParallelFeatures;	/* Parallelize along channels */
+	char ForceDPconv;	/* Forces double precision convolution*/
+	char UseHwCE;		/* Enable HW CE */
 	AT_PadType PadType;	/* Control padding strategy */
+	char EnableIm2Col;	/* Enable mat mul based convolution when feasible */
+	int ReluN;		/* if != -1 Overides 6 as a default value for ReLUN */
+	char MulBiasScalar;	/* if != -1 Overides default non scalar for MulBias convolutions */
+	char In_L3;		/* if != 0 In (or In1) forced to be in L3 memory */
+	char Filter_L3;		/* if != 0 Filter (or In2)  forced to be in L3 memory */
+	char Bias_L3;		/* if != 0 Bias forced to be in L3 memory */
+	char Out_L3;		/* if != 0 Out forced to be in L3 memory */
+	char Scale_L3;		/* if != 0 Scale forced to be in L3 memory */
+	char ScaleN_L3;		/* if != 0 ScaleN forced to be in L3 memory */
 } CNN_GenControl_T;
 
 typedef struct {
@@ -818,7 +935,7 @@ typedef struct {
 	int N_Oper2;		/* Number of Secondary Kernel operations supported by this user kernel */
 	KernelOper_T *KerOper2;	/* List of Matching secondary operation, N_Oper1 */
 	int ParallelFeatures;	/* if Non 0 this kernel evaluates features in parallel, if not one feature is evaluated on multiple cores, -1 don't care */
-	int OpType[4];		/* 0: In1, 1: In2, 2: In3, 3: Out , For each of them size in bytes or 0 if to be ignored */
+	int OpType[5];		/* 0: In1, 1: In2, 2: In3, 3: Out , For each of them size in bytes or 0 if to be ignored */
 	int Fx;			/* Filter x dimension, 0 don't care, -1 any value, >0 a given value */
 	int Fy;		 	/* Filter y dimension, 0 don't care, -1 any value, -2 any value but equal to Fy, >0 a given value */
 	int Dx;			/* In case of convolution x dilation, 0 don't care, -1 any value, >0 a given value */
@@ -835,20 +952,6 @@ typedef struct {
 	NameT *ParArgTypeName;
 	CNN_LayerOp_T *Oper;
 } KernelLib_T;
-
-#if 0
-typedef struct {
-	NameT *Name;
-	unsigned int Instance;
-	unsigned int First;
-	unsigned int Last;
-	unsigned int InGroup;
-	unsigned int CArgCount;
-	CKernel_Arg_T **CArg;
-	unsigned int CCallsCount;	/* Should be equal to Last-First+1 */
-	CKernelCall_T **CCalls;
-} KernelGroup_T;
-#endif
 
 typedef Kernel_T KernelGroup_T;
 
@@ -894,6 +997,8 @@ typedef struct AGraphNodeList_T {
 	Kernel_Arg_T *KerArg;			/* Corresponding Kernel Argument in related binding */
 	ArgBindingDescr_T *Binding;		/* The bindings from which this edge is originating */
 	GraphEdgeWeb_T *Web;			/* Which symbol */
+	unsigned int Size;			/* Size of this symbol as seen in the related kernel argument */
+	int Offset;				/* Offset applied to the  base of this symbol in case binding Oper is + or - */
 	int Channel;				/* To which channel this symbol belongs to */
 	int ChannelDepth;			/* Channel depth */
 	GraphNodeList_T *Next;			/* Next edge */
@@ -931,6 +1036,7 @@ typedef struct {
 typedef struct AGraphEdgeWeb_T {
 	CKernel_Arg_T *Edge;		/* The symbol, CArgs or Locals in the current graph */
 	unsigned int Index;		/* Index of this Symbol */
+	unsigned int Size;		/* Size of this symbol */
 	int LiveFirst;			/* Graph node index of start life for this symbol */
 	int LiveLast;			/* Graph node index of start stop for this symbol */
 	Kernel_Arg_T *KerArg;		/* This symbol is bounded to this Kernel argument */
@@ -977,6 +1083,7 @@ typedef struct {
 	unsigned int CArgsCount;		/* Number of C args */
 	CKernel_Arg_T **Locals;			/* CNN graph C local arguments, will have to be dynamically allocated */
 	unsigned int LocalsCount;		/* Number of locals */
+	StackedTensors_T *StackedTensors;	/* Stacked Tensors */
 	GraphNode_T *Nodes;			/* User Kernels or user kernel groups list */
 	GraphNode_T **OrderedNodes;		/* User Kernels or user kernel groups array after toplogical sorting */
 	unsigned int NodesCount;		/* Number of nodes */
@@ -988,21 +1095,33 @@ typedef struct {
 } CNNGraph_T;
 
 typedef enum {
-	AT_GRAPH_MONITOR_CYCLES,		/* Enable automatic cycle capture for each node of the graph */
-	AT_GRAPH_MONITOR_CVAR_NAME,		/* When monitor cycles is on name of the C var array to receive results */
-	AT_GRAPH_PRODUCE_NODE_NAMES,		/* Enable production of an array containing the name of each graph node */
-	AT_GRAPH_PRODUCE_NODE_CVAR_NAME,	/* When producing node names is on name of the C array receiving the names as strings */
-	AT_GRAPH_PRODUCE_OPERINFOS,		/* Enable production of number of macs for each layer */
-	AT_GRAPH_PRODUCE_OPERINFOS_CVAR_NAME,	/* When Number of oper Infos is on name of the C array receiving mac infos for each node */
-	AT_GRAPH_REORDER_CONSTANT_IN,		/* Enable reodering of constant inputs in order to transform 2D accesses into 1D accesses */
-	AT_GRAPH_TRACE_EXEC,			/* Enable trace of activity */
-	AT_GRAPH_NOINLINE_NODE,
+	AT_KERNEL_BUFFER_PROMOTE=1,		/* When all user kernel arguments can fit into given L1 memory promote them to buffer, default is 1 */
+	AT_KERNEL_PARTIAL_BUFFER_PROMOTE,	/* When all tile of a user kernel argument across Input Features can fit into given L1 memory promote them to partial buffer, default is 1 */
+	AT_KERNEL_NOSOLUTION_ERROR,		/* Report an error when no tiling solution is found, default is 1 */
+	AT_GRAPH_MONITOR_CYCLES,		/* Enable automatic cycle capture for each node of the graph, default is 0 */
+	AT_GRAPH_MONITOR_CVAR_NAME,		/* When monitor cycles is on name of the C var array to receive results, default is AT_GraphPerf */
+	AT_GRAPH_PRODUCE_NODE_NAMES,		/* Enable production of an array containing the name of each graph node, default is 0 */
+	AT_GRAPH_PRODUCE_NODE_CVAR_NAME,	/* When producing node names is on name of the C array receiving the names as strings, default is AT_GraphNodeNames */
+	AT_GRAPH_PRODUCE_OPERINFOS,		/* Enable production of number of macs for each layer, default is 0 */
+	AT_GRAPH_PRODUCE_OPERINFOS_CVAR_NAME,	/* When Number of oper Infos is on name of the C array receiving mac infos for each node, default is AT_GraphOperInfosNames */
+	AT_GRAPH_REORDER_CONSTANT_IN,		/* Enable reodering of constant inputs in order to transform 2D accesses into 1D accesses, default is 1 */
+	AT_GRAPH_TRACE_EXEC,			/* Enable trace of activity, default is 1 */
+	AT_GRAPH_NOINLINE_NODE,			/* If 1 all user kernel function is marked as noinline, default is 0 */
+	AT_GRAPH_PREF_L3_EXEC,			/* In case a symbol must be allocated in L3 for execution this is the prefered memory, default is AT_MEM_L3_HRAM */
+	AT_GRAPH_CONST_EXEC_FROM_FLASH,		/* If 1, for constant symbol executes from home location, default is 0 */
+	AT_GRAPH_PREF_L3_HOME,			/* For constant symbols which L3 flash prefered memory, default is AT_MEM_L3_HFLASH */
+	AT_GRAPH_DUMP_TENSOR,			/* Trace selected tensors arguments at inference time, either all nodes or selected node */
+	AT_GRAPH_DUMP_ONE_NODE,			/* Trace one specific graph node */
 } AT_GraphCtrl_T;
+/*
 #define AT_OPT_ON	((void *) 1)
 #define AT_OPT_OFF	((void *) 0)
 #define AT_OPT_VAL(Val)	((void *) (Val))
-
+*/
 typedef struct {
+	int KerBufferPromote;			/* When all user kernel arguments can fit into given L1 memory promote them to buffer */
+	int KerPartialBufferPromote;		/* When all tile of a user kernel argument across Input Features can fit into given L1 memory promote them to partial buffer */
+	int KerNoTilingSolutionError;		/* Report an error when no tiling solution is found */
 	int MonitorCycles;			/* 1 if cycles should be captured for each node of the graph */
 	char *C_TimerName;			/* Name of the C array variable 0..LastNode to keep the time, will be declared and defined */
 	int ProduceNodeNames;			/* 1 if node names should be assigned to an array of string for dump purpose at graph execution ti,e */
@@ -1011,13 +1130,22 @@ typedef struct {
 	char *C_OperInfosName;			/* Name of the C array varaible where to assign oper count info for each node, will be declared and defined */
 	int ReorderConstTensor;			/* For constant tensors rewrite them folloing tile order in order to transform 2D accesses into linear accesses */
 	int TraceExec;				/* 1 if log for graph exec is active */
-	int NoNodeInline;
+	int NoNodeInline;			/* if 1 all user kernel function is marked as noinline */
+	AT_MemLocation_T PreferedL3ExecLoc;	/* In case a symbol must be allocated in L3 in which memory, default is AT_MEM_L3_HRAM */
+	int ConstExecFromFlash;			/* If 1, for constant symbol executes from home location, default is 0 */
+	AT_MemLocation_T PreferedConstL3HomeLoc;/* For a constant symbol where to store it L3, default is AT_MEM_L3_HFLASH */
+	unsigned int DumpTensorFilter;		/* A bit vector of AT_DumpTensor_T */
+	NameT *DumpTensorNode;			/* Dump tensor defined by DumpTensorFilter for this specific node, if null dump all */
 } GraphControl_T;
 
 #define Q2F(V, N)               ((float) (((float) (V))/((1<<(N))-0)))
 #define MultRndu(x,y, scale)    ((unsigned int)(((x)*(y)) + (1<<((scale)-1)))>>(scale))
+#ifndef Max
 #define Max(a, b)               (((a)>(b))?(a):(b))
+#endif
+#ifndef Min
 #define Min(a, b)               (((a)<(b))?(a):(b))
+#endif
 
 /* Return aligned value, alignment is 2^Size */
 #define ALIGN(Value, Size)      (((Value)&((1<<(Size))-1))?((((Value)>>(Size))+1)<<(Size)):(Value))
@@ -1052,8 +1180,8 @@ extern char *MemoryBaseName[];
 extern int TopAllocatedMemory[];
 extern char *L1MemoryBase;
 
-extern AT_MemLocation_T PreferedL3ExecLoc;
-extern AT_MemLocation_T PreferedConstL3HomeLoc;
+extern GraphControl_T GraphControl;
+
 extern int TopAllocatedMemory[];
 extern int AvailableMemory[];
 

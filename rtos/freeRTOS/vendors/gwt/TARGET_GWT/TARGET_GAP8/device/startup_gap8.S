@@ -36,20 +36,6 @@
 *******************************************************************************/
 
 /*******************************************************************************
-        MACRO DEFINITION
-*******************************************************************************/
-
-/******************************************************************************/
-        .macro DECLARE Routine
-        .global \Routine
-        .func \Routine
-        .type \Routine, %function
-        \Routine:
-        .endm
-/******************************************************************************/
-
-
-/*******************************************************************************
         EXTERNAL VARIABLES & FUNCTIONS
 *******************************************************************************/
         .extern __irq_vector_base_m__
@@ -69,6 +55,20 @@
         .extern systick_handler
         .extern cluster_notify_fc_handler
         .extern fc_event_handler
+/******************************************************************************/
+
+
+/*******************************************************************************
+        MACRO DEFINITION
+*******************************************************************************/
+
+/******************************************************************************/
+        .macro DECLARE Routine
+        .global \Routine
+        .func \Routine
+        .type \Routine, %function
+        \Routine:
+        .endm
 /******************************************************************************/
 
 
@@ -158,14 +158,4 @@ _jump2main: /* Jump to main */
         /* Ecall Handler. */
         .org 0x88
         j ecall_handler
-
-        /*
-        This variable is pointed to the structure containing all information exchanged with
-        the platform loader. It is using a fixed address so that the loader can also find it
-        and then knows the address of the debug structure.
-        */
-        .org 0x90
-        .global __rt_debug_struct_ptr
-__rt_debug_struct_ptr:
-        .word Debug_Struct
 /******************************************************************************/

@@ -27,7 +27,7 @@ void cluster_delegate(void *arg)
     printf("Cluster master core entry\n");
     /* Task dispatch to cluster cores. */
     cl_sync_init_spinlock(&spinlock, &tas_addr);
-    pi_cl_team_fork(pi_nb_cluster_cores(), cluster_uart_helloworld, arg);
+    pi_cl_team_fork(pi_cl_cluster_nb_cores(), cluster_uart_helloworld, arg);
     printf("Cluster master core exit\n");
 }
 
@@ -42,9 +42,6 @@ void test_uart_delegate(void)
     uart_conf.enable_tx = 1;
     uart_conf.enable_rx = 0;
     uart_conf.baudrate_bps = 115200;
-    #if !defined(__PULP_OS__)
-    uart_conf.src_clock_Hz = pi_fll_get_frequency(FLL_SOC);
-    #endif  /* __PULP_OS__ */
     pi_open_from_conf(&uart, &uart_conf);
     if (pi_uart_open(&uart))
     {

@@ -579,15 +579,18 @@ void pi_cl_l2_free(void *chunk, int size, pi_cl_free_req_t *req)
   rt_free_cluster(RT_ALLOC_PERIPH, chunk, size, (rt_free_req_t *)req);
 }
 
-void *pi_l1_malloc(struct pi_device *device, uint32_t size)
+void *pi_cl_l1_malloc(struct pi_device *device, uint32_t size)
 {
   return rt_alloc(RT_ALLOC_CL_DATA, size);
 }
 
-void pi_l1_free(struct pi_device *device, void *_chunk, int size)
+void pi_cl_l1_free(struct pi_device *device, void *_chunk, int size)
 {
   return rt_free(RT_ALLOC_CL_DATA, _chunk, size);
 }
+
+
+#endif
 
 void *pi_l2_malloc(int size)
 {
@@ -599,5 +602,24 @@ void pi_l2_free(void *_chunk, int size)
   return rt_free(RT_ALLOC_PERIPH, _chunk, size);
 }
 
+#if defined(ARCHI_HAS_FC_TCDM)
+void *pi_fc_l1_malloc(int size)
+{
+  return rt_alloc(RT_ALLOC_FC_DATA, size);
+}
 
+void pi_fc_l1_free(void *_chunk, int size)
+{
+  return rt_free(RT_ALLOC_FC_DATA, _chunk, size);
+}
+#else
+void *pi_fc_l1_malloc(int size)
+{
+  return pi_l2_malloc(size);
+}
+
+void pi_fc_l1_free(void *_chunk, int size)
+{
+  return pi_l2_free(_chunk, size);
+}
 #endif

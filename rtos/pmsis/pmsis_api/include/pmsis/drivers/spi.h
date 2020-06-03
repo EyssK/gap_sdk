@@ -57,13 +57,43 @@
  * \brief Wordsize of the SPI bitstream elements.
  *
  * This is used to know how the endianness must be applied.
+ * Not all sizes are supported on all chips, check the chip-specific section
+ * to get more information.
  */
 typedef enum {
   PI_SPI_WORDSIZE_8 = 0,     /*!< Each element is 8 bits. Thus the endianness
     has no effect. */
-  PI_SPI_WORDSIZE_32 = 1     /*!< Each element is 32 bits. The way each
+  PI_SPI_WORDSIZE_16 = 1,     /*!< Each element is 16 bits. The way each
+    element is stored in memory can then be specified with the endianness. */
+  PI_SPI_WORDSIZE_32 = 2     /*!< Each element is 32 bits. The way each
     element is stored in memory can then be specified with the endianness. */
 } pi_spi_wordsize_e;
+
+/**
+ * \enum pi_spi_polarity_e
+ *
+ * Clock polarity.
+ */
+typedef enum
+{
+    PI_SPI_POLARITY_0 = 0, /*!< Leading edge is rising edge, trailing edge is falling edge. */
+    PI_SPI_POLARITY_1 = 1  /*!< Leading edge is falling edge, trailing edge is rising edge. */
+} pi_spi_polarity_e;
+
+/**
+ * \enum pi_spi_phase_e
+ *
+ * Clock phase.
+ */
+typedef enum
+{
+    PI_SPI_PHASE_0 = 0, /*!< Data shifted out on trailing edge of preceding clock cycle.
+                         *   Data sampled on leading edge of clock cycle.
+                         */
+    PI_SPI_PHASE_1 = 1  /*!< Data shifted out on leading edge of current clock cycle.
+                         *   Data sampled on trailing edge of clock cycle.
+                         */
+} pi_spi_phase_e;
 
 /** \struct pi_spi_conf_t
  * \brief SPI master configuration structure.
@@ -71,21 +101,26 @@ typedef enum {
  * This structure is used to pass the desired SPI master configuration to the
  * runtime when opening a device.
  */
-struct pi_spi_conf {
-  int max_baudrate;       /*!< Maximum baudrate for the SPI bitstream which can
-    be used with the opened device . */
-  char wordsize;          /*!< Wordsize of the elements in the bitstream. Can
-    be PI_SPI_WORDSIZE_8 for 8 bits data or PI_SPI_WORDSIZE_32 for 32 bits
-    data. This is used to interpret the endianness. */
-  char big_endian;        /*!< If 1, the elements are stored in memory in a
-    big-endian way, i.e. the most significant byte is stored at the lowest
-    address. This is taken into account only if the wordsize is 32 bits. */
-  char polarity;          /*!< Polarity of the clock. */
-  char phase;             /*!< Phase of the clock. */
-  signed char cs;         /*!< Specifies which SPI chip select is used for the
-    device. */
-  signed char itf;        /*!< Specifies on which SPI interface the device is
-    connected. */
+struct pi_spi_conf
+{
+    int max_baudrate;           /*!< Maximum baudrate for the SPI bitstream which can
+                                  be used with the opened device . */
+    char wordsize;              /*!< Wordsize of the elements in the bitstream. Can
+                                  be PI_SPI_WORDSIZE_8 for 8 bits data or PI_SPI_WORDSIZE_32 for 32 bits
+                                  data. This is used to interpret the endianness. */
+    char big_endian;            /*!< If 1, the elements are stored in memory in a
+                                  big-endian way, i.e. the most significant byte is stored at the lowest
+                                  address. This is taken into account only if the wordsize is 32 bits. */
+    pi_spi_polarity_e polarity; /*!< Polarity of the clock. */
+    pi_spi_phase_e phase;       /*!< Phase of the clock. */
+    signed char cs;             /*!< Specifies which SPI chip select is used for the
+                                  device. */
+    signed char itf;            /*!< Specifies on which SPI interface the device is
+                                  connected. */
+    int max_rcv_chunk_size;     /*!< Specifies maximum chunk size for reception when
+                                  using copies. */
+    int max_snd_chunk_size;     /*!< Specifies maximum chunk size for sending when
+                                  using copies. */
 };
 
 /** \enum pi_spi_ioctl_e
@@ -136,7 +171,10 @@ typedef enum {
   PI_SPI_LINES_SINGLE  = 0 << 2,    /*!< Use a single MISO line. */
   PI_SPI_LINES_QUAD    = 1 << 2,    /*!< Use quad MISO lines. */
   PI_SPI_LINES_OCTAL   = 2 << 2,    /*!< Use octal MISO lines. */
-  PI_SPI_APPEND_UCODE  = 1 << 4,    /*!< Append micro-append to transfer. */
+  PI_SPI_COPY_EXT2LOC  = 1 << 4,    /*!< Do a copy from external memory to local
+   chip memory. */
+  PI_SPI_COPY_LOC2EXT  = 0 << 4,    /*!< Do a copy from local chip memory to
+    external memory. */
 } pi_spi_flags_e;
 
 /** \brief Initialize an SPI master configuration with default values.
@@ -358,6 +396,24 @@ void pi_spi_transfer_async(struct pi_device *device, void *tx_data,
 
 /// @cond IMPLEM
 
+/**
+ * Enqueue receive ucode given by the user, and receive answer in data buffer
+ */
+void pi_spi_receive_with_ucode(struct pi_device *device, void *data,
+        size_t len, pi_spi_flags_e flags, int ucode_size,
+        void *ucode);
+
+/**
+ * Enqueue receive ucode given by the user, and receive answer in data buffer
+ */
+void pi_spi_send_with_ucode(struct pi_device *device, void *data,
+        size_t len, pi_spi_flags_e flags, int ucode_size,
+        void *ucode);
+
+/**
+ * Extract config from device (useful to craft ucode)
+ */
+uint32_t pi_spi_get_config(struct pi_device *device);
 
 #define SPI_UCODE_CMD_SEND_CMD(cmd,bits,qpi)    ((2<<28) | ((qpi)<<27) | (((bits)-1)<<16) | (((cmd)>>8)<<0) | (((cmd)&0xff)<<(0+8)))
 #define SPI_UCODE_CMD_SEND_ADDR(bits,qpi)       ((3<<28) | ((qpi)<<27) | (((bits)-1)<<16))
@@ -367,11 +423,25 @@ void *pi_spi_receive_ucode_set(struct pi_device *device, uint8_t *ucode, uint32_
 
 void pi_spi_receive_ucode_set_addr_info(struct pi_device *device, uint8_t *ucode, uint32_t ucode_size);
 
-void pi_spi_transfer_ucode_set(struct pi_device *device, uint8_t *ucode, uint32_t ucode_size);
-
 void *pi_spi_send_ucode_set(struct pi_device *device, uint8_t *ucode, uint32_t ucode_size);
 
 void pi_spi_send_ucode_set_addr_info(struct pi_device *device, uint8_t *ucode, uint32_t ucode_size);
+
+void pi_spi_copy(struct pi_device *device,
+  uint32_t addr, void *data, uint32_t size,
+  pi_spi_flags_e flags);
+
+void pi_spi_copy_async(struct pi_device *device,
+  uint32_t addr, void *data, uint32_t size,
+  pi_spi_flags_e flags, pi_task_t *task);
+
+void pi_spi_copy_2d(struct pi_device *device,
+  uint32_t addr, void *data, uint32_t size, uint32_t stride,
+  uint32_t length, pi_spi_flags_e flags);
+
+void pi_spi_copy_2d_async(struct pi_device *device,
+  uint32_t addr, void *data, uint32_t size, uint32_t stride,
+  uint32_t length, pi_spi_flags_e flags, pi_task_t *task);
 
 /// @endcond
 

@@ -1,8 +1,17 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 
@@ -10,6 +19,7 @@ import numpy as np
 
 from graph.dim import Dim
 from quantization.quantization_record import FilterQuantizationRecord
+from quantization.qtype import QType
 
 from .utils import pad, prepare_acc, srange
 
@@ -17,12 +27,15 @@ LOG = logging.getLogger("nntool." + __name__)
 
 # pylint: disable=invalid-name
 def faster_conv(params, in_dims: Dim, out_dims: Dim, in_tensor: np.ndarray,
-                weights: np.ndarray, biases: np.ndarray, details):
+                weights: np.ndarray, biases: np.ndarray, mul_biases: np.ndarray, details):
     '''3D convolution by sub-matrix summing.
     '''
     if details is not None:
         details['min_acc'] = float("Infinity")
         details['max_acc'] = float("-Infinity")
+        if params.has_mul_bias:
+            details['pre_mul_bias_min'] = float("Infinity")
+            details['pre_mul_bias_max'] = float("-Infinity")
 
     in_tensor = in_tensor.transpose(in_dims.transpose_to_order(['h', 'w', 'c']))
     if params.padding.h + params.padding.w > 0:
@@ -39,6 +52,7 @@ def faster_conv(params, in_dims: Dim, out_dims: Dim, in_tensor: np.ndarray,
     else:
         pad_w = pad_h = 0
 
+    weights = weights.copy()
     weights = weights.transpose(params.filter.transpose_to_order(['out_c', 'h', 'w', 'in_c']))
 
     filt_w = params.filter.w
@@ -47,6 +61,11 @@ def faster_conv(params, in_dims: Dim, out_dims: Dim, in_tensor: np.ndarray,
     in_w = in_dims.w
     in_h = in_dims.h
     out_c = params.filter.out_c
+
+    in_c_per_group = in_dims.c // params.groups
+    out_c_per_group = out_c // params.groups
+    in_c_off = 0
+    out_c_cnt = 0
 
     out_w = ((in_w - filt_w + pad_w))+1
     out_h = ((in_h - filt_h + pad_h))+1
@@ -67,7 +86,9 @@ def faster_conv(params, in_dims: Dim, out_dims: Dim, in_tensor: np.ndarray,
                                    cur_w:
                                    const_w + cur_w:
                                    1,
-                                   ...] * weights[out_c_i, cur_h, cur_w]
+                                   in_c_off:
+                                   in_c_off + in_c_per_group:
+                                   1] * weights[out_c_i, cur_h, cur_w]
                 # add depthwise
                 slabhw = slabhw.sum(axis=-1)
                 # add to the previous filter elements
@@ -76,9 +97,19 @@ def faster_conv(params, in_dims: Dim, out_dims: Dim, in_tensor: np.ndarray,
                 if details is not None:
                     details['min_acc'] = min(np.min(result[out_c_i]), details['min_acc'])
                     details['max_acc'] = max(np.max(result[out_c_i]), details['max_acc'])
+        out_c_cnt += 1
+        if out_c_cnt >= out_c_per_group:
+            out_c_cnt = 0
+            in_c_off += in_c_per_group
 
     if params.stride.size() > 1:
         result = result[:, ::params.stride.h, ::params.stride.w, ...]
+
+    if params.has_mul_bias:
+        if details is not None:
+            details['pre_mul_bias_min'] = min(np.min(result), details['pre_mul_bias_min'])
+            details['pre_mul_bias_max'] = max(np.max(result), details['pre_mul_bias_max'])
+        result *= mul_biases.reshape(out_c, 1, 1)
 
     return result.transpose(out_dims.transpose_from_order(['c', 'h', 'w']))
 
@@ -90,6 +121,7 @@ def faster_conv_quantized(params,
                           in_tensor: np.ndarray,
                           weights: np.ndarray,
                           biases: np.ndarray,
+                          mul_biases: np.ndarray,
                           details,
                           detect_overflow=True):
     '''3D convolution by sub-matrix summing.
@@ -116,7 +148,7 @@ def faster_conv_quantized(params,
         pad_w = pad_h = 0
 
     in_tensor = in_tensor.astype(qrec.calc_q.dtype)
-    
+
     weights = weights.transpose(params.filter.transpose_to_order(['out_c', 'h', 'w', 'in_c']))
 
     filt_w = params.filter.w
@@ -126,6 +158,11 @@ def faster_conv_quantized(params,
     in_h = in_dims.h
     out_c = params.filter.out_c
 
+    in_c_per_group = in_dims.c // params.groups
+    out_c_per_group = out_c // params.groups
+    in_c_off = 0
+    out_c_cnt = 0
+
     out_w = ((in_w - filt_w + pad_w))+1
     out_h = ((in_h - filt_h + pad_h))+1
     if biases is None:
@@ -133,7 +170,8 @@ def faster_conv_quantized(params,
     else:
         if qrec.acc_q != qrec.biases_q:
             biases = qrec.acc_q.expand_from(biases, qrec.biases_q)
-        result = np.ones((out_c, out_h, out_w), dtype=qrec.acc_q.dtype) * biases.reshape(out_c, 1, 1)
+        result = np.ones((out_c, out_h, out_w), dtype=qrec.acc_q.dtype) *\
+            biases.reshape(out_c, 1, 1)
 
     if detect_overflow:
         result64 = result.astype(np.int64)
@@ -151,7 +189,9 @@ def faster_conv_quantized(params,
                                          cur_w:
                                          const_w + cur_w:
                                          1,
-                                         ...].astype(np.int64) * weights[out_c_i, cur_h, cur_w]
+                                         in_c_off:
+                                         in_c_off + in_c_per_group:
+                                         1].astype(np.int64) * weights[out_c_i, cur_h, cur_w]
                     if qrec.calc_q != qrec.acc_q:
                         # reduce the accumulator
                         slabhwpost = qrec.acc_q.round_normalize_clip(slabhw64,
@@ -171,7 +211,9 @@ def faster_conv_quantized(params,
                                    cur_w:
                                    const_w + cur_w:
                                    1,
-                                   ...] * weights[out_c_i, cur_h, cur_w]
+                                   in_c_off:
+                                   in_c_off + in_c_per_group:
+                                   1] * weights[out_c_i, cur_h, cur_w]
 
                 if detect_overflow:
                     if np.any(slabhw < slabhw64):
@@ -199,8 +241,17 @@ def faster_conv_quantized(params,
                     details['min_acc'] = min(np.min(result[out_c_i]), details['min_acc'])
                     details['max_acc'] = max(np.max(result[out_c_i]), details['max_acc'])
 
+        out_c_cnt += 1
+        if out_c_cnt >= out_c_per_group:
+            out_c_cnt = 0
+            in_c_off += in_c_per_group
+
     if params.stride.size() > 1:
         result = result[:, ::params.stride.h, ::params.stride.w, ...]
+
+    if params.has_mul_bias:
+        result *= mul_biases.reshape(out_c, 1, 1)
+        result >>= qrec.mul_biases_q.q
 
     if qrec.out_qs[0] != qrec.acc_q:
         result = qrec.out_qs[0].reduce_from(result, qrec.acc_q)
@@ -213,12 +264,15 @@ def conv2d(params,
            in_dims: Dim,
            out_dims: Dim,
            in_tensor: np.ndarray,
-           weights: np.ndarray, biases: np.ndarray,
+           weights: np.ndarray,
+           biases: np.ndarray,
+           mul_biases: np.ndarray = None,
            qrec=None,
            details=None,
-           allow_faster=True):
+           allow_faster=True,
+           detect_overflow=True):
 
-    if allow_faster and not params.is_grouped_conv() and params.dilation.size() == 1:
+    if allow_faster and params.dilation.size() == 1:
         if qrec:
             return faster_conv_quantized(params,
                                          qrec,
@@ -227,7 +281,9 @@ def conv2d(params,
                                          in_tensor,
                                          weights,
                                          biases,
-                                         details)
+					                     mul_biases,
+                                         details,
+                                         detect_overflow)
         else:
             return faster_conv(params,
                                in_dims,
@@ -235,7 +291,10 @@ def conv2d(params,
                                in_tensor,
                                weights,
                                biases,
+                               mul_biases,
                                details)
+
+    assert mul_biases is None, "mulbiases not supported in dilated conv"
 
     acc_tensor = prepare_acc(biases, out_dims, qrec)
 

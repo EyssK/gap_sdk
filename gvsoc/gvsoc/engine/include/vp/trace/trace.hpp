@@ -39,6 +39,12 @@ namespace vp {
 
   public:
 
+    static const int LEVEL_ERROR   = 0;
+    static const int LEVEL_WARNING = 1;
+    static const int LEVEL_INFO    = 2;
+    static const int LEVEL_DEBUG   = 3;
+    static const int LEVEL_TRACE   = 4;
+
     inline void msg(int level, const char *fmt, ...);
     inline void msg(const char *fmt, ...);
     inline void user_msg(const char *fmt, ...);
@@ -53,20 +59,29 @@ namespace vp {
     inline void event_real_pulse(int64_t duration, double pulse_value, double background_value);
     inline void event_real_delayed(double value);
 
+    void register_callback(std::function<void()> callback) { this->callbacks.push_back(callback); }
+
     inline string get_name() { return this->name; }
+
+    void set_full_path(std::string path) { this->full_path = path; }
+    std::string get_full_path() { return this->full_path; }
 
     void dump_header();
     void dump_warning_header();
     void dump_fatal_header();
 
-    void set_active(bool active) { is_active = active; }
-    void set_event_active(bool active) { is_event_active = active; }
+    void set_active(bool active);
+    void set_event_active(bool active);
+
+    void set_trace_manager(vp::trace_engine *engine) { this->trace_manager = engine; }
 
   #ifndef VP_TRACE_ACTIVE
     inline bool get_active() { return false; }
+    inline bool get_active(int level) { return false; }
     inline bool get_event_active() { return false; }
   #else
     inline bool get_active() { return is_active; }
+    bool get_active(int level);
     inline bool get_event_active() { return is_event_active; }
   #endif
     bool is_active = false;
@@ -78,6 +93,7 @@ namespace vp {
     bool is_string = false;
     int id;
     FILE *trace_file = stdout;
+    int is_event;
 
   protected:
     int level;
@@ -85,11 +101,14 @@ namespace vp {
     trace_engine *trace_manager;
     bool is_event_active = false;
     string name;
+    string path;
     uint8_t *buffer = NULL;
     uint8_t *buffer2 = NULL;
     trace *next;
     trace *prev;
     int64_t pending_timestamp;
+    string full_path;
+    vector<std::function<void()>> callbacks;
   };    
 
 

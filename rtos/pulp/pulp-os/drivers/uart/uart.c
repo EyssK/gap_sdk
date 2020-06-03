@@ -15,7 +15,7 @@
  */
 
 
-/* 
+/*
  * Authors: Germain Haugou, GreenWaves Technologies (germain.haugou@greenwaves-technologies.com)
  */
 
@@ -23,20 +23,201 @@
 
 #define __RT_UART_BAUDRATE 115200
 
+#define UDMA_UART_MAX_SIZE 0x1FFFF
+
+#if defined(UART_FLOW_CONTROL_EMU) && PULP_CHIP == CHIP_VEGA
+#undef UART_FLOW_CONTROL_EMU
+#endif
+
+/*
+ * Uart IRQ handler, written in ASM.
+ * This function will call __pi_uart_handle_copy(), with pi_uart_t arg.
+ */
+extern void __pi_uart_handle_copy_asm();
+void __pi_uart_handle_copy(int event, void *arg);
+
+/*
+ * Disable RX channel, abort current transfer,
+ * flush event tasks linked to the channel.
+ */
+static void __pi_uart_rx_abort(pi_uart_t *uart);
+
+/*
+ * Disable TX channel, abort current transfer,
+ * flush event tasks linked to the channel.
+ */
+static void __pi_uart_tx_abort(pi_uart_t *uart);
+
+/* Enable flow control. */
+static int __pi_uart_flow_control_enable(pi_uart_t *uart);
+
+/* Enqueu transfer in UDMA with flow control. */
+static void __pi_uart_copy_enqueue_exec_flow_control(pi_uart_t *uart,
+                                                     struct pi_task *task);
+
+/* Enqueu transfer in UDMA. */
+static void __pi_uart_copy_enqueue_exec(pi_uart_t *uart, struct pi_task *task);
+
+/* Enqueue transfer in UDMA or in SW fifo. */
+static void __pi_uart_copy_enqueue(pi_uart_t *uart, uint32_t l2_buf, uint32_t size,
+                                   uint8_t channel, struct pi_task *task);
 
 
 L2_DATA static pi_uart_t __rt_uart[ARCHI_UDMA_NB_UART];
 
+void __pi_uart_handle_copy(int event, void *arg)
+{
+  pi_uart_t *uart = (pi_uart_t *) arg;
+  int channel = event & 0x1;
+  rt_udma_channel_t *udma_chan = (channel) ? &(uart->tx_channel) : &(uart->rx_channel);
+  struct pi_task *task = udma_chan->pendings[0];
+
+  if (task->implem.data[3])
+  {
+    if (uart->conf.use_ctrl_flow)
+    {
+      __pi_uart_copy_enqueue_exec_flow_control(uart, task);
+    }
+    else
+    {
+      __pi_uart_copy_enqueue_exec(uart, task);
+    }
+  }
+  else
+  {
+    __rt_event_handle_end_of_task(task);
+    task = udma_chan->waitings_first;
+    udma_chan->pendings[0] = task;
+    rt_compiler_barrier();
+    if (task != NULL)
+    {
+      udma_chan->waitings_first = udma_chan->waitings_first->implem.next;
+      if (udma_chan->waitings_first == NULL)
+      {
+        udma_chan->waitings_last = NULL;
+      }
+      if (uart->conf.use_ctrl_flow)
+      {
+        __pi_uart_copy_enqueue_exec_flow_control(uart, task);
+      }
+      else
+      {
+        __pi_uart_copy_enqueue_exec(uart, task);
+      }
+    }
+  }
+}
+
+
+#if defined(UART_FLOW_CONTROL_EMU)
+static void __pi_uart_copy_enqueue_exec_flow_control(pi_uart_t *uart,
+                                                     struct pi_task *task)
+{
+  unsigned int base = task->implem.data[2];
+  unsigned int l2_buf = task->implem.data[0] + task->implem.data[4];
+  unsigned int size = 1;//task->implem.data[1];
+  unsigned int cfg = UDMA_CHANNEL_CFG_SIZE_8 | UDMA_CHANNEL_CFG_EN;
+  unsigned int channel = task->implem.data[5];
+  rt_compiler_barrier();
+  task->implem.data[4]++;       /* update l2 buffer pointer. */
+  task->implem.data[3]--;       /* update remaining size. */
+  if (channel == 1)
+  {
+    /* Wait for CTS. */
+    uint32_t value = 0;
+    value = pi_gpio_pin_read(NULL, PI_GPIO_A1_PAD_9_B3, &value);
+    while (value == 1)
+    {
+      value = pi_gpio_pin_read(NULL, PI_GPIO_A1_PAD_9_B3, &value);
+    }
+  }
+  plp_udma_enqueue(base, l2_buf, size, cfg);
+  if (channel == 0)
+  {
+    /* Send RTS. */
+    pi_pwm_ioctl(&(uart->pwm), PI_PWM_TIMER_COMMAND, (void *) PI_PWM_CMD_STOP);
+    pi_pwm_ioctl(&(uart->pwm), PI_PWM_TIMER_COMMAND, (void *) PI_PWM_CMD_START);
+  }
+}
+#else
+static void __pi_uart_copy_enqueue_exec_flow_control(pi_uart_t *uart,
+                                                     struct pi_task *task)
+{
+  return;
+}
+#endif  /* UART_FLOW_CONTROL_EMU */
+
+static void __pi_uart_copy_enqueue_exec(pi_uart_t *uart, struct pi_task *task)
+{
+  //unsigned int base = hal_udma_channel_base(uart->channel + task->implem.data[2]);
+  unsigned int base = task->implem.data[2];
+  unsigned int l2_buf = task->implem.data[0];
+  unsigned int size = task->implem.data[1];
+  unsigned int cfg = UDMA_CHANNEL_CFG_SIZE_8 | UDMA_CHANNEL_CFG_EN;
+  uint32_t max_size = (uint32_t) UDMA_UART_MAX_SIZE - 4;
+  if (size > max_size)
+  {
+    size = max_size;
+  }
+  rt_compiler_barrier();
+  task->implem.data[0] += size;        /* update l2 buffer pointer */
+  task->implem.data[3] = task->implem.data[1] - size; /* update remaining size */
+  task->implem.data[1] = task->implem.data[3];        /* next size to enqueue */
+  plp_udma_enqueue(base, l2_buf, size, cfg);
+}
+
+/* channel: rx=0, tx=1. */
+static void __pi_uart_copy_enqueue(pi_uart_t *uart, uint32_t l2_buf, uint32_t size,
+                                   uint8_t channel, struct pi_task *task)
+{
+  int irq = disable_irq();
+  task->implem.data[0] = l2_buf; /* l2 buffer */
+  task->implem.data[1] = uart->conf.use_ctrl_flow ? 1 : size; /* size to enqueue */
+  task->implem.data[2] = hal_udma_channel_base(uart->channel + channel); /* periph base(rx or tx) */
+  task->implem.data[3] = uart->conf.use_ctrl_flow ? size : 0; /* repeat size ? */
+  task->implem.data[4] = 0;       /* l2 buffer pointer offset */
+  task->implem.data[5] = channel;                             /* channel(rx or tx) */
+  task->implem.next = NULL;
+
+  rt_udma_channel_t *udma_chan = (channel) ? &(uart->tx_channel) : &(uart->rx_channel);
+  if (udma_chan->pendings[0] == NULL)
+  {
+    udma_chan->pendings[0] = task;
+    if (uart->conf.use_ctrl_flow)
+    {
+      __pi_uart_copy_enqueue_exec_flow_control(uart, task);
+    }
+    else
+    {
+      __pi_uart_copy_enqueue_exec(uart, task);
+    }
+  }
+  else
+  {
+    if (udma_chan->waitings_first == NULL)
+    {
+      udma_chan->waitings_first = task;
+    }
+    else
+    {
+      udma_chan->waitings_last->implem.next = task;
+    }
+    udma_chan->waitings_last = task;
+  }
+  restore_irq(irq);
+}
 
 
 void pi_uart_conf_init(struct pi_uart_conf *conf)
 {
   conf->baudrate_bps = __RT_UART_BAUDRATE;
-  conf->uart_id = 0;
-  conf->stop_bit_count = 1;
-  conf->parity_mode = 0;
+  conf->stop_bit_count = PI_UART_STOP_BITS_ONE;
+  conf->parity_mode = PI_UART_PARITY_DISABLE;
+  conf->word_size = PI_UART_WORD_SIZE_8_BITS;
   conf->enable_rx = 1;
   conf->enable_tx = 1;
+  conf->uart_id = 0;
+  conf->use_ctrl_flow = 0;
 }
 
 
@@ -55,7 +236,7 @@ static void __rt_uart_wait_tx_done(pi_uart_t *uart)
 #if 1
 
 // There is a bug in the uart, between 2 bytes, the uart says it is not busy
-// and so if we are not lucky, we can continue while the uart is actually 
+// and so if we are not lucky, we can continue while the uart is actually
 // still busy. Instead, wait for a few clock refs
 
 #ifdef ITC_VERSION
@@ -78,12 +259,19 @@ static void __rt_uart_wait_tx_done(pi_uart_t *uart)
 
 static void __rt_uart_setup(pi_uart_t *uart)
 {
-  int div =  (__rt_freq_periph_get() + uart->baudrate/2) / uart->baudrate;
+  int baudrate = uart->conf.baudrate_bps;
+  int div =  (__rt_freq_periph_get() + baudrate/2) / baudrate;
 
   // The counter in the UDMA will count from 0 to div included
   // and then will restart from 0, so we must give div - 1 as
   // divider
-  plp_uart_setup(uart->channel - ARCHI_UDMA_UART_ID(0), 0, div-1);
+  plp_uart_setup_set(uart->channel - ARCHI_UDMA_UART_ID(0),
+                     uart->conf.parity_mode,
+                     uart->conf.word_size,
+                     uart->conf.stop_bit_count,
+                     uart->conf.enable_tx,
+                     uart->conf.enable_rx,
+                     div-1);
 }
 
 
@@ -140,7 +328,7 @@ static int __rt_uart_setfreq_after(void *arg)
 int pi_uart_open(struct pi_device *device)
 {
   int irq = rt_irq_disable();
-  
+
   struct pi_uart_conf *conf = (struct pi_uart_conf *)device->config;
 
   int uart_id = conf->uart_id;
@@ -160,8 +348,13 @@ int pi_uart_open(struct pi_device *device)
   }
 
   uart->open_count++;
-  uart->baudrate = baudrate;
+  //uart->baudrate = baudrate;
+  memcpy(&(uart->conf), conf, sizeof(struct pi_uart_conf));
   uart->channel = channel;
+  uart->tx_channel.pendings[0] = NULL;
+  uart->tx_channel.pendings[1] = NULL;
+  uart->tx_channel.waitings_first = NULL;
+  uart->tx_channel.waitings_last = NULL;
 
   // First activate uart device
   plp_udma_cg_set(plp_udma_cg_get() | (1<<periph_id));
@@ -169,12 +362,22 @@ int pi_uart_open(struct pi_device *device)
   soc_eu_fcEventMask_setEvent(channel);
   soc_eu_fcEventMask_setEvent(channel+1);
 
-    // Redirect all UDMA cpi events to the standard callback
-    __rt_udma_register_channel_callback(channel, __rt_udma_handle_copy, (void *)uart);
-    __rt_udma_register_channel_callback(channel+1, __rt_udma_handle_copy, (void *)uart);
+  // Redirect all UDMA cpi events to the standard callback
+  //printf("callback arg: uart %p\n", uart);
+  __rt_udma_register_channel_callback(channel, __pi_uart_handle_copy_asm, (void *) uart);
+  __rt_udma_register_channel_callback(channel+1, __pi_uart_handle_copy_asm, (void *) uart);
 
   // Then set it up
   __rt_uart_setup(uart);
+
+  if (uart->conf.use_ctrl_flow)
+  {
+    if (__pi_uart_flow_control_enable(uart))
+    {
+      printf("Error enabling flow control\n");
+      return -2;
+    }
+  }
 
   rt_trace(RT_TRACE_DEV_CTRL, "[UART] Successfully opened uart device (handle: %p)\n", uart);
 
@@ -201,9 +404,10 @@ void pi_uart_close(struct pi_device *device)
   // some printf are still pending
   __rt_uart_wait_tx_done(uart);
 
-  // Set enable bits for uart channel back to 0 
+  // Set enable bits for uart channel back to 0
   // This is needed to be able to propagate new configs when re-opening
-  plp_uart_disable(uart->channel - ARCHI_UDMA_UART_ID(0));      
+  __pi_uart_tx_abort(uart);
+  __pi_uart_rx_abort(uart);
 
   // Then stop the uart
   plp_udma_cg_set(plp_udma_cg_get() & ~(1<<uart->channel));
@@ -247,12 +451,11 @@ int pi_cl_uart_write(pi_device_t *device, void *buffer, uint32_t size, pi_cl_uar
 #endif
 
 
-
 int pi_uart_write_async(struct pi_device *device, void *buffer, uint32_t size, pi_task_t *task)
 {
   __rt_task_init(task);
   pi_uart_t *uart = (pi_uart_t *)device->data;
-  __rt_udma_copy_enqueue(task, uart->channel + 1, &uart->tx_channel, (uint32_t)buffer, size, UDMA_CHANNEL_CFG_SIZE_8);
+  __pi_uart_copy_enqueue(uart, (uint32_t) buffer, size, 1, task);
   return 0;
 }
 
@@ -262,7 +465,7 @@ int pi_uart_read_async(struct pi_device *device, void *buffer, uint32_t size, pi
 {
   __rt_task_init(task);
   pi_uart_t *uart = (pi_uart_t *)device->data;
-  __rt_udma_copy_enqueue(task, uart->channel, &uart->rx_channel, (uint32_t)buffer, size, UDMA_CHANNEL_CFG_SIZE_8);
+  __pi_uart_copy_enqueue(uart, (uint32_t) buffer, size, 0, task);
   return 0;
 }
 
@@ -297,6 +500,122 @@ int pi_uart_write_byte(pi_device_t *device, uint8_t *byte)
 int pi_uart_write_byte_async(pi_device_t *device, uint8_t *byte, pi_task_t *callback)
 {
   return pi_uart_write_async(device, byte, 1, callback);
+}
+
+/* Ioctl functions. */
+static void __pi_uart_conf_set(pi_uart_t *uart, struct pi_uart_conf *conf)
+{
+  memcpy(&(uart->conf), conf, sizeof(struct pi_uart_conf));
+  __rt_uart_setup(uart);
+}
+
+static void __pi_uart_rx_abort(pi_uart_t *uart)
+{
+  plp_uart_rx_disable(uart->channel - ARCHI_UDMA_UART_ID(0));
+  plp_uart_rx_clr(uart->channel - ARCHI_UDMA_UART_ID(0));
+  /* Clear event tasks. */
+  uart->rx_channel.pendings[0] = NULL;
+  uart->rx_channel.pendings[1] = NULL;
+  uart->rx_channel.waitings_first = NULL;
+  uart->rx_channel.waitings_last = NULL;
+}
+
+static void __pi_uart_tx_abort(pi_uart_t *uart)
+{
+  plp_uart_tx_disable(uart->channel - ARCHI_UDMA_UART_ID(0));
+  plp_uart_tx_clr(uart->channel - ARCHI_UDMA_UART_ID(0));
+  /* Clear event tasks. */
+  uart->tx_channel.pendings[0] = NULL;
+  uart->tx_channel.pendings[1] = NULL;
+  uart->tx_channel.waitings_first = NULL;
+  uart->tx_channel.waitings_last = NULL;
+}
+
+static void __pi_uart_rx_enable(pi_uart_t *uart)
+{
+  plp_uart_rx_enable(uart->channel - ARCHI_UDMA_UART_ID(0));
+}
+
+static void __pi_uart_tx_enable(pi_uart_t *uart)
+{
+  plp_uart_tx_enable(uart->channel - ARCHI_UDMA_UART_ID(0));
+}
+
+#if defined(UART_FLOW_CONTROL_EMU)
+static int __pi_uart_flow_control_enable(pi_uart_t *uart)
+{
+  int status = 0;
+  struct pi_device *pwm = &(uart->pwm);
+  struct pi_pwm_conf pwm_conf = {0};
+  pi_pwm_conf_init(&pwm_conf);
+  pwm_conf.pwm_id = 0;
+  pwm_conf.ch_id = PI_PWM_CHANNEL2;
+  pwm_conf.timer_conf = PI_PWM_EVT_FALL | PI_PWM_CLKSEL_FLL | PI_PWM_UPDOWNSEL_ALT;
+  pi_open_from_conf(pwm, &pwm_conf);
+  status = pi_pwm_open(pwm);
+  if (status)
+  {
+    printf("Error opening PWM device : %d\n", status);
+    return -11;
+  }
+  /* Timer threshold. */
+  pi_pwm_ioctl(pwm, PI_PWM_TIMER_THRESH, 0x0);
+  /* Channel mode and threshold. */
+  struct pi_pwm_ioctl_ch_config ch_conf = {0};
+  ch_conf.ch_threshold = 0xFFFF;
+  ch_conf.config = PI_PWM_SET;
+  ch_conf.channel = pwm_conf.ch_id;
+  pi_pwm_ioctl(pwm, PI_PWM_CH_CONFIG, &ch_conf);
+  /* CMD : update, arm and start. */
+  pi_pwm_ioctl(pwm, PI_PWM_TIMER_COMMAND, (void *) PI_PWM_CMD_UPDATE);
+  pi_pwm_ioctl(pwm, PI_PWM_TIMER_COMMAND, (void *) PI_PWM_CMD_ARM);
+  pi_pwm_ioctl(pwm, PI_PWM_TIMER_COMMAND, (void *) PI_PWM_CMD_START);
+
+  pi_pad_set_function(PI_PAD_33_B12_TIMER0_CH2, PI_PAD_FUNC0);  // SET B12 TIM0CH2 (RTS)
+  pi_gpio_pin_configure(NULL, PI_GPIO_A1_PAD_9_B3, PI_GPIO_INPUT);  // GPIO1 ON B3 AS INPUT (CTS)
+  pi_gpio_pin_configure(NULL, PI_GPIO_A0_PAD_8_A4, PI_GPIO_INPUT);  //GPIO0 ON A4 AS INPUT (UARRT_RX DETECT)
+  uart->conf.use_ctrl_flow = 1;
+  return status;
+}
+#else
+static int __pi_uart_flow_control_enable(pi_uart_t *uart)
+{
+  return -12;
+}
+#endif  /* UART_FLOW_CONTROL_EMU */
+
+int pi_uart_ioctl(pi_device_t *device, uint32_t cmd, void *arg)
+{
+  pi_uart_t *uart = (pi_uart_t *) device->data;
+  switch(cmd)
+  {
+  case PI_UART_IOCTL_CONF_SETUP :
+    __pi_uart_conf_set(uart, (struct pi_uart_conf *) arg);
+    break;
+
+  case PI_UART_IOCTL_ABORT_RX :
+    __pi_uart_rx_abort(uart);
+    break;
+
+  case PI_UART_IOCTL_ABORT_TX :
+    __pi_uart_tx_abort(uart);
+    break;
+
+  case PI_UART_IOCTL_ENABLE_RX :
+    __pi_uart_rx_enable(uart);
+    break;
+
+  case PI_UART_IOCTL_ENABLE_TX :
+    __pi_uart_tx_enable(uart);
+    break;
+
+  case PI_UART_IOCTL_ENABLE_FLOW_CONTROL :
+    return __pi_uart_flow_control_enable(uart);
+
+  default :
+    return -1;
+  }
+  return 0;
 }
 
 

@@ -1,13 +1,23 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from abc import ABC, abstractmethod
 from graph.types import (ConcatParameters, Conv2DParameters, FcParameters,
-                         SoftMaxParameters, FusionParameters, PoolingParameters,
-                         ActivationParameters)
+                         SoftMaxParameters, ConvFusionParameters, PoolingParameters,
+                         ActivationParameters, MatrixAddParameters, ActivationFusion,
+                         MatrixMulParameters, GlobalPoolParameters)
 
 class NamingConvension(ABC):
 
@@ -37,7 +47,7 @@ class DefaultNamingConvension(NamingConvension):
         return self.G.name
 
     def get_global_name(self, name, step_idx, params, gtype):
-        return "Step{}{}".format(step_idx, gtype.capitalize())
+        return "S{}_{}".format(step_idx, gtype.capitalize())
 
 # pylint: disable=too-many-return-statements
     def get_node_name(self, node_name, step_idx, params):
@@ -49,32 +59,51 @@ class DefaultNamingConvension(NamingConvension):
             return "S{}_Linear_{}".format(step_idx, str(params.filter))
         if isinstance(params, SoftMaxParameters):
             return "S{}_SoftMax".format(step_idx)
-        if isinstance(params, FusionParameters):
+        if isinstance(params, ConvFusionParameters):
+            nodes = params.contained_nodes()
             if params.fusion_type == "conv_active_pool":
                 return "S{}_Conv2d_{}_{}Pool_{}_{}"\
-                    .format(step_idx, params.params[0].filter,
-                            params.params[2].pool_type.capitalize(), params.params[2].filter,
-                            params.params[1].activation.capitalize())
+                    .format(step_idx, nodes[0].filter,
+                            nodes[2].pool_type.capitalize(), nodes[2].filter,
+                            nodes[1].activation.capitalize())
             if params.fusion_type == "conv_pool_active":
                 return "S{}_Conv2d_{}_{}Pool_{}_{}"\
-                    .format(step_idx, params.params[0].filter,
-                            params.params[1].pool_type.capitalize(), params.params[1].filter,
-                            params.params[2].activation.capitalize())
+                    .format(step_idx, nodes[0].filter,
+                            nodes[1].pool_type.capitalize(), nodes[1].filter,
+                            nodes[2].activation.capitalize())
             if params.fusion_type == "conv_active":
                 return "S{}_Conv2d_{}_{}"\
-                    .format(step_idx, params.params[0].filter,
-                            params.params[1].activation.capitalize())
+                    .format(step_idx, nodes[0].filter,
+                            nodes[1].activation.capitalize())
             if params.fusion_type == "conv_pool":
                 return "S{}_Conv2d_{}_{}Pool_{}"\
-                    .format(step_idx, params.params[0].filter,
-                            params.params[1].pool_type.capitalize(), params.params[1].filter)
+                    .format(step_idx, nodes[0].filter,
+                            nodes[1].pool_type.capitalize(), nodes[1].filter)
         if isinstance(params, PoolingParameters):
             return "S{}_{}Pool_{}".format(step_idx, params.pool_type.capitalize(), params.filter)
         if isinstance(params, ActivationParameters):
-            return "S{}_{}".format(step_idx, params.activation.capitalize())
-        return node_name
+            return "S{}_Act_{}".format(step_idx, params.activation.capitalize())
+        if isinstance(params, MatrixAddParameters):
+            return "S{}_MatAdd_{}".format(step_idx, str(params.out_dims[0]))
+        if isinstance(params, MatrixMulParameters):
+            return "S{}_MatMul_{}".format(step_idx, str(params.out_dims[0]))
+        if isinstance(params, ActivationFusion):
+            nodes = params.contained_nodes()
+            if isinstance(nodes[0], MatrixAddParameters):
+                return "S{}_MatAdd_{}_{}".format(step_idx, str(nodes[0].out_dims[0]),
+                                              nodes[1].activation.capitalize())
+            if isinstance(nodes[0], (PoolingParameters)):
+                return "S{}_{}Pool_{}_{}".format(step_idx, nodes[0].pool_type.capitalize(),
+                                                 nodes[0].filter, nodes[1].activation.capitalize())
+            if isinstance(nodes[0], (GlobalPoolParameters)):
+                return "S{}_{}Pool_{}_{}".format(step_idx, nodes[0].pool_type.capitalize(),
+                                                 nodes[0].out_dims[0], nodes[1].activation.capitalize())
+            if isinstance(nodes[0], MatrixMulParameters):
+                return "S{}_MatMul_{}_{}".format(step_idx, str(nodes[0].out_dims[0]),
+                                              nodes[1].activation.capitalize())
+        return "S{}_Op_{}".format(step_idx, node_name)
 
-    def get_edge_name(self, node_name, step_idx, edge_type, edge_order=None):
+    def get_edge_name(self, node_name, step_idx, edge_type, edge_order=None, edge_params=None):
         if edge_type == "in":
             return node_name.capitalize()
         if edge_type == "out":
@@ -82,7 +111,7 @@ class DefaultNamingConvension(NamingConvension):
                 return self.G.out_edges(node_name)[0].to_node.name.capitalize()
             return node_name.capitalize()
         if edge_type == "in_out":
-            ename = "OutputStep{}".format(step_idx)
+            ename = "S{}_Output".format(step_idx)
             return ename
         assert False, "unknown edge type"
         return None

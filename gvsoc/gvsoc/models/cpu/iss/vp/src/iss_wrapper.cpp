@@ -23,6 +23,14 @@
 #include "archi/gvsoc/gvsoc.h"
 #include "iss.hpp"
 #include <algorithm>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#ifndef O_BINARY
+# define O_BINARY 0
+#endif
 
 #define HALT_CAUSE_EBREAK    0
 #define HALT_CAUSE_ECALL     1
@@ -483,11 +491,33 @@ void iss_wrapper::debug_req()
   this->check_state();
 }
 
-std::string iss_wrapper::read_user_string(iss_addr_t addr)
+bool iss_wrapper::user_access(iss_addr_t addr, uint8_t *buffer, iss_addr_t size, bool is_write)
+{
+  vp::io_req *req = &io_req;
+  req->init();
+  req->set_debug(true);
+  req->set_addr(addr);
+  req->set_size(size);
+  req->set_is_write(is_write);
+  req->set_data(buffer);
+  int err = data.req(req);
+  if (err != vp::IO_REQ_OK) 
+  {
+    if (err == vp::IO_REQ_INVALID)
+      this->warning.fatal("Invalid IO response during debug request\n");
+    else
+      this->warning.fatal("Pending IO response during debug request\n");
+
+    return true;
+  }
+  return false;
+}
+
+std::string iss_wrapper::read_user_string(iss_addr_t addr, int size)
 {
   vp::io_req *req = &io_req;
   std::string str = "";
-  while(1)
+  while(size != 0)
   {
     uint8_t buffer;
     req->init();
@@ -502,7 +532,7 @@ std::string iss_wrapper::read_user_string(iss_addr_t addr)
       if (err == vp::IO_REQ_INVALID)
         return "";
       else
-        this->warning.fatal("Pending IO response during debug request");
+        this->warning.fatal("Pending IO response during debug request\n");
     }
 
     if (buffer == 0)
@@ -510,16 +540,224 @@ std::string iss_wrapper::read_user_string(iss_addr_t addr)
 
     str += buffer;
     addr++;
+
+    if (size > 0)
+      size--;
+  }
+
+  return str;
+}
+
+static const int open_modeflags[12] = {
+        O_RDONLY,
+        O_RDONLY | O_BINARY,
+        O_RDWR,
+        O_RDWR | O_BINARY,
+        O_WRONLY | O_CREAT | O_TRUNC,
+        O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
+        O_RDWR | O_CREAT | O_TRUNC,
+        O_RDWR | O_CREAT | O_TRUNC | O_BINARY,
+        O_WRONLY | O_CREAT | O_APPEND,
+        O_WRONLY | O_CREAT | O_APPEND | O_BINARY,
+        O_RDWR | O_CREAT | O_APPEND,
+        O_RDWR | O_CREAT | O_APPEND | O_BINARY
+};
+
+void iss_wrapper::handle_riscv_ebreak()
+{
+  int id = this->cpu.regfile.regs[10];
+
+  if (id == 0x4)
+  {
+    std::string path = this->read_user_string(this->cpu.regfile.regs[11]);
+    printf("%s", path.c_str());
+  }
+  else if (id == 0x1)
+  {
+    iss_reg_t args[3];
+    if (this->user_access(this->cpu.regfile.regs[11], (uint8_t *)args, sizeof(args), false))
+    {
+      this->cpu.regfile.regs[10] = -1;
+      return;
+    }
+    std::string path = this->read_user_string(args[0], args[2]);
+
+
+    unsigned int mode = args[1];
+
+    this->cpu.regfile.regs[10] = open(path.c_str(), open_modeflags[mode], 0644);
+
+    if (this->cpu.regfile.regs[10] == -1)
+      this->warning.force_warning("Caught error during semi-hosted call (name: open, path: %s, mode: 0x%x, error: %s)\n", path.c_str(), mode, strerror(errno));
+
+
+  }
+  else if (id == 0x2)
+  {
+    this->cpu.regfile.regs[10] = close(this->cpu.regfile.regs[11]);
+  }
+  else if (id == 0x5)
+  {
+    iss_reg_t args[3];
+    if (this->user_access(this->cpu.regfile.regs[11], (uint8_t *)args, sizeof(args), false))
+    {
+      this->cpu.regfile.regs[10] = -1;
+      return;
+    }
+
+    uint8_t buffer[1024];
+    int size = args[2];
+    iss_reg_t addr = args[1];
+    while(size)
+    {
+      int iter_size = 1024;
+      if (size < 1024)
+        iter_size = size;
+
+      if (this->user_access(addr, buffer, iter_size, false))
+      {
+        this->cpu.regfile.regs[10] = -1;
+        return;
+      }
+
+      if (write(args[0], (void *)(long)buffer, iter_size) != iter_size)
+        break;
+
+      size -= iter_size;
+      addr += iter_size;
+    }
+
+    this->cpu.regfile.regs[10] = size;
+  }
+  else if (id == 0x6)
+  {
+    iss_reg_t args[3];
+    if (this->user_access(this->cpu.regfile.regs[11], (uint8_t *)args, sizeof(args), false))
+    {
+      this->cpu.regfile.regs[10] = -1;
+      return;
+    }
+
+    uint8_t buffer[1024];
+    int size = args[2];
+    iss_reg_t addr = args[1];
+    while(size)
+    {
+      int iter_size = 1024;
+      if (size < 1024)
+        iter_size = size;
+
+      int read_size = read(args[0], (void *)(long)buffer, iter_size);
+
+      if (read_size <= 0)
+      {
+        if (read_size < 0)
+        {
+          this->cpu.regfile.regs[10] = -1;
+          return;
+        }
+        else
+        {
+          break;
+        }
+      }
+
+      if (this->user_access(addr, buffer, read_size, true))
+      {
+        this->cpu.regfile.regs[10] = -1;
+        return;
+      }
+
+      size -= read_size;
+      addr += read_size;
+    }
+
+    this->cpu.regfile.regs[10] = size;
+  }
+  else if (id == 0xA)
+  {
+    iss_reg_t args[2];
+    if (this->user_access(this->cpu.regfile.regs[11], (uint8_t *)args, sizeof(args), false))
+    {
+      this->cpu.regfile.regs[10] = -1;
+      return;
+    }
+
+    int pos = lseek(args[0], args[1], SEEK_SET);
+    this->cpu.regfile.regs[10] = pos != args[1];
+  }
+  else if (id == 0x18)
+  {
+    if (this->cpu.regfile.regs[11] == 0x20026)
+      exit(0);
+    else
+      exit(1);
+  }
+  else if (id == 0x0C)
+  {
+    struct stat buf;
+    fstat(this->cpu.regfile.regs[11], &buf);
+    this->cpu.regfile.regs[10] = buf.st_size;
+  }
+  else
+  {
+    this->warning.force_warning("Unknown ebreak call (id: %d)\n", id);
   }
 }
+
 
 
 void iss_wrapper::handle_ebreak()
 {
   int id = this->cpu.regfile.regs[10];
+
   switch (id)
   {
-    case GV_SEMIHOSTING_VCD_CONFIGURE:
+    case GV_SEMIHOSTING_TRACE_OPEN: {
+      int result = -1;
+      std::string path = this->read_user_string(this->cpu.regfile.regs[11]);
+      if (path == "")
+      {
+        this->warning.force_warning("Invalid user string while opening trace (addr: 0x%x)\n", this->cpu.regfile.regs[11]);
+      }
+      else
+      {
+        vp::trace *trace = this->traces.get_trace_manager()->get_trace_from_path(path);
+        if (trace == NULL)
+        {
+          this->warning.force_warning("Invalid trace (path: %s)\n", path.c_str());
+        }
+        else
+        {
+          this->trace.msg("Opened trace (path: %s, id: %d)\n", path.c_str(), trace->id);
+          result = trace->id;
+        }
+      }
+
+      this->cpu.regfile.regs[10] = result;
+
+      break;
+    }
+    
+    case GV_SEMIHOSTING_TRACE_ENABLE: {
+      int id = this->cpu.regfile.regs[11];
+      vp::trace *trace = this->traces.get_trace_manager()->get_trace_from_id(id);
+      if (trace == NULL)
+      {
+        this->warning.force_warning("Unknown trace ID while dumping trace (id: %d)\n", id);
+      }
+      else
+      {
+        trace->set_active(this->cpu.regfile.regs[12]);
+      }
+
+      break; 
+    }
+    
+    case GV_SEMIHOSTING_VCD_CONFIGURE: {
+      int enabled = this->cpu.regfile.regs[11];
+      this->traces.get_trace_manager()->set_global_enable(enabled);
+    }
     break;
 
     case GV_SEMIHOSTING_VCD_OPEN_TRACE: {
@@ -531,7 +769,7 @@ void iss_wrapper::handle_ebreak()
       }
       else
       {
-        vp::trace *trace = this->traces.get_trace_manager()->get_trace(path);
+        vp::trace *trace = this->traces.get_trace_manager()->get_trace_from_path(path);
         if (trace == NULL)
         {
           this->warning.force_warning("Invalid VCD trace (path: %s)\n", path.c_str());
@@ -736,16 +974,32 @@ vp::io_req_status_e iss_wrapper::dbg_unit_req(void *__this, vp::io_req *req)
 }
 
 
+
+void iss_wrapper::insn_trace_callback()
+{
+  // This is called when the state of the instruction trace has changed, we need
+  // to flush the ISS instruction cache, as it keeps the state of the trace
+  if (this->iss_opened)
+  {
+    iss_cache_flush(this);
+  }
+}
+
+
+
 int iss_wrapper::build()
 {
   traces.new_trace("trace", &trace, vp::DEBUG);
   traces.new_trace("decode_trace", &decode_trace, vp::DEBUG);
-  traces.new_trace("insn", &insn_trace, vp::TRACE);
+  traces.new_trace("insn", &insn_trace, vp::DEBUG);
+  this->insn_trace.register_callback(std::bind(&iss_wrapper::insn_trace_callback, this));
+
   traces.new_trace("csr", &csr_trace, vp::TRACE);
   traces.new_trace("perf", &perf_counter_trace, vp::TRACE);
 
   traces.new_trace_event("state", &state_event, 8);
   traces.new_trace_event("pc", &pc_trace_event, 32);
+  this->pc_trace_event.register_callback(std::bind(&iss_wrapper::insn_trace_callback, this));
   traces.new_trace_event_string("asm", &insn_trace_event);
   traces.new_trace_event_string("func", &func_trace_event);
   traces.new_trace_event_string("inline_func", &inline_trace_event);
@@ -777,6 +1031,7 @@ int iss_wrapper::build()
   power.new_trace("power_trace", &power_trace);
 
   this->new_reg("bootaddr", &this->bootaddr_reg, get_config_int("boot_addr"));
+  
   this->new_reg("fetch_enable", &this->fetch_enable_reg, get_js_config()->get("fetch_enable")->get_bool());
   this->new_reg("is_active", &this->is_active_reg, false);
   this->new_reg("stalled", &this->stalled, false);
@@ -837,7 +1092,12 @@ int iss_wrapper::build()
   this->cpu.config.isa = strdup(isa.c_str());
   this->cpu.config.debug_handler = this->get_js_config()->get_int("debug_handler");
 
+  this->is_active_reg.set(false);
+
   ipc_clock_event = this->event_new(iss_wrapper::ipc_stat_handler);
+
+  this->ipc_stat_delay = 0;
+  this->iss_opened = false;
 
   return 0;
 }
@@ -854,6 +1114,8 @@ void iss_wrapper::start()
 
 
   if (iss_open(this)) throw logic_error("Error while instantiating the ISS");
+
+  this->iss_opened = true;
 
   for (auto x:this->get_js_config()->get("**/debug_binaries")->get_elems())
   {
@@ -916,13 +1178,13 @@ void iss_wrapper::reset(bool active)
 }
 
 
-iss_wrapper::iss_wrapper(const char *config)
+iss_wrapper::iss_wrapper(js::config *config)
 : vp::component(config)
 {
 }
 
 
-extern "C" void *vp_constructor(const char *config)
+extern "C" vp::component *vp_constructor(js::config *config)
 {
-  return (void *)new iss_wrapper(config);
+  return new iss_wrapper(config);
 }

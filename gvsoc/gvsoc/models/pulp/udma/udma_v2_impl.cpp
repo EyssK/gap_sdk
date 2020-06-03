@@ -30,18 +30,18 @@
 
 
 
-void Udma_rx_channel::push_data(uint8_t *data, int size)
+bool Udma_rx_channel::push_data(uint8_t *data, int size)
 {
   if (current_cmd == NULL)
   {
     //top->warning.warning("Received data while there is no ready command\n");
-    return;
+    return true;
   }
 
   if (size + this->pending_byte_index > 4)
   {
     top->warning.force_warning("Trying to push more than 4 bytes from peripheral to udma core\n");
-    return;
+    return true;
   }
 
   memcpy(&(((uint8_t *)&this->pending_word)[this->pending_byte_index]), data, size);
@@ -61,6 +61,7 @@ void Udma_rx_channel::push_data(uint8_t *data, int size)
       handle_transfer_end();
     }
   }
+  return false;
 }
 
 void Udma_rx_channel::reset(bool active)
@@ -238,8 +239,7 @@ vp::io_req_status_e Udma_channel::cfg_req(vp::io_req *req)
 
     if (channel_clear)
     {
-      trace.msg("UNIMPLEMENTED AT %s %d\n", __FILE__, __LINE__);
-      return vp::IO_REQ_INVALID;
+      this->reset(true);
     }
 
     if (channel_enabled)
@@ -278,7 +278,7 @@ vp::io_req_status_e Udma_channel::req(vp::io_req *req, uint64_t offset)
 
 
 
-Udma_channel::Udma_channel(udma *top, int id, string name) : top(top), id(id), name(name)
+Udma_channel::Udma_channel(udma *top, int id, string name) : top(top), id(id), name(name), current_cmd(NULL)
 {
   top->traces.new_trace(name + "/trace", &trace, vp::DEBUG);
 
@@ -309,10 +309,20 @@ void Udma_channel::reset(bool active)
 {
   if (active)
   {
-    current_cmd = NULL;
-    continuous_mode = 0;
-    transfer_size = 0;
+    if (current_cmd)
+    {
+      this->free_reqs->push(this->current_cmd);
+      this->current_cmd = NULL;
+    }
+    this->continuous_mode = 0;
+    this->transfer_size = 0;
     this->state_event.event(NULL);
+
+    while(!this->pending_reqs->is_empty())
+    {
+      this->free_reqs->push(this->pending_reqs->pop());
+    }
+
   }
 }
 
@@ -422,7 +432,7 @@ void udma::trigger_event(int event)
 }
 
 
-udma::udma(const char *config)
+udma::udma(js::config *config)
 : vp::component(config)
 {
 }
@@ -636,6 +646,7 @@ int udma::build()
   in.set_req_meth(&udma::req);
   new_slave_port("input", &in);
 
+  this->periph_clock = NULL;
   this->periph_clock_itf.set_reg_meth(&udma::clk_reg);
   new_slave_port("periph_clock", &this->periph_clock_itf);
 
@@ -815,6 +826,10 @@ int udma::build()
 
 void udma::start()
 {
+  if (this->periph_clock == NULL)
+  {
+    this->periph_clock = this->get_clock();
+  }
 }
 
 void udma::reset(bool active)
@@ -839,8 +854,8 @@ void udma::reset(bool active)
 
 
 
-extern "C" void *vp_constructor(const char *config)
+extern "C" vp::component *vp_constructor(js::config *config)
 {
-  return (void *)new udma(config);
+  return new udma(config);
 }
 

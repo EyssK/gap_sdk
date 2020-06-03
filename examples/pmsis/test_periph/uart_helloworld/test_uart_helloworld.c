@@ -16,10 +16,7 @@ void test_uart_helloworld(void)
     pi_uart_conf_init(&conf);
     conf.enable_tx = 1;
     conf.enable_rx = 0;
-    conf.baudrate_bps = 9600;
-    #if !defined(__PULP_OS__)
-    conf.src_clock_Hz = pi_fll_get_frequency(FLL_SOC);
-    #endif  /* __PULP_OS__ */
+    conf.baudrate_bps = 115200;
     pi_open_from_conf(&uart, &conf);
     if (pi_uart_open(&uart))
     {

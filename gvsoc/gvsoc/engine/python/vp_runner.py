@@ -16,9 +16,6 @@
 
 # Authors: Germain Haugou, ETH (germain.haugou@iis.ee.ethz.ch)
  
-import vp.time_domain
-import vp.trace_engine
-import vp.power_engine
 import vp_core
 import runner.stim_utils
 from os import listdir
@@ -31,6 +28,8 @@ import shlex
 import json_tools as js
 import pulp_config
 from prettytable import PrettyTable
+import imp
+import ctypes
 
 import gtkw_new
 
@@ -925,7 +924,7 @@ def gen_rt_traces_for_cluster(config, gv_config, cluster, cluster_alias):
             'filter': 'rt_state.txt'
         }
 
-        gv_config.set('vcd/traces/%s_pe%d' % (cluster, i), pe_conf)
+        gv_config.set('events/include_regex/%s_pe%d' % (cluster, i), pe_conf)
 
 
 
@@ -941,8 +940,8 @@ def gen_rt_traces(config, gv_config):
 def gen_gtkw_files(config, gv_config):
     nb_pe = config.get_int('**/cluster/nb_pe')
 
-    user_traces = gv_config.get('**/vcd/traces')
-    tags = gv_config.get('**/vcd/tags').get_dict()
+    user_traces = gv_config.get('**/events/traces')
+    tags = gv_config.get('**/events/tags').get_dict()
 
     gen_rt_traces(config, gv_config)
 
@@ -971,7 +970,7 @@ def gen_gtkw_files(config, gv_config):
 
     tp = Trace_pool()
 
-    if len(gv_config.get('event').get()) != 0 or gv_config.get_bool('vcd/active'):
+    if len(gv_config.get('events/include_regex').get()) != 0 or gv_config.get_bool('events/enabled'):
         path = os.path.join(os.getcwd(), 'view.gtkw')
         with open(path, 'w') as file:
             gtkw = gtkw_new.GTKWSave(file)
@@ -1054,9 +1053,10 @@ def gen_gtkw_files(config, gv_config):
                     check_user_traces(gtkw, tp, 'chip.fc', user_traces)
                     gen_gtkw_core_traces(gtkw, tp, 'sys.board.chip.soc.fc')
 
-                with gtkw.group('fc_icache', closed=True):
-                    check_user_traces(gtkw, tp, 'chip.fc_icache', user_traces)
-                    gen_gtkw_icache_traces(gtkw, tp, 'sys.board.chip.soc.fc_icache', 1<<config.get_int('**/fc_icache/nb_ways_bits'), 1<<config.get_int('**/fc_icache/nb_sets_bits'))
+                if config.get('**/fc_icache') is not None:
+                    with gtkw.group('fc_icache', closed=True):
+                        check_user_traces(gtkw, tp, 'chip.fc_icache', user_traces)
+                        gen_gtkw_icache_traces(gtkw, tp, 'sys.board.chip.soc.fc_icache', 1<<config.get_int('**/fc_icache/nb_ways_bits'), 1<<config.get_int('**/fc_icache/nb_sets_bits'))
 
 
                 if nb_pe is not None:
@@ -1067,6 +1067,10 @@ def gen_gtkw_files(config, gv_config):
                             with gtkw.group('pe_%d' % i, closed=True):
                                 gen_gtkw_core_traces(gtkw, tp, 'sys.board.chip.cluster.pe%d' % i)
 
+                        with gtkw.group('icache', closed=True):
+                            check_user_traces(gtkw, tp, 'chip.cluster.icache', user_traces)
+                            gen_gtkw_icache_traces(gtkw, tp, 'sys.board.chip.cluster.icache', 1<<config.get_int('**/cluster/icache/nb_ways_bits'), 1<<config.get_int('**/cluster/icache/nb_sets_bits'))
+
 
         print ()
         print ('A Gtkwave script has been generated and can be opened with the following command:')
@@ -1074,11 +1078,11 @@ def gen_gtkw_files(config, gv_config):
         print ()
 
         for trace in tp.get_traces(tags):
-            gv_config.set('event', trace.get_vp())
+            gv_config.set('events/include_regex', trace.get_vp())
 
 
-    if gv_config.get_bool('**/vcd/gtkw'):
-        gv_config.set('vcd/format', 'vcd')
+    if gv_config.get_bool('**/events/gtkw'):
+        gv_config.set('events/format', 'vcd')
         os.mkfifo('all.vcd')
         gtkw_new.spawn_gtkwave_interactive('all.vcd', 'view.gtkw', quiet=False)
 
@@ -1093,9 +1097,15 @@ class Runner(Platform):
 
         parser.add_argument("--no-debug-syms", dest="debug_syms", action="store_false", help="Deactivate debug symbol parsing, which can then be used for traces")
 
+        parser.add_argument("--trace-enable", dest="trace", action="store_true", help="Activate GVSOC traces")
+
+        parser.add_argument("--cmd", dest="cmd", action="store_true", help="Just display GVSOC command")
+
         parser.add_argument("--trace", dest="traces", default=[], action="append", help="Specify gvsoc trace")
 
         parser.add_argument("--trace-level", dest="trace_level", default=None, help="Specify trace level")
+
+        parser.add_argument("--stdin", dest="stdin", action="store_true", help="Activate input console")
 
         parser.add_argument("--vcd", dest="vcd", action="store_true", help="Activate VCD traces")
 
@@ -1123,26 +1133,32 @@ class Runner(Platform):
 
         self.__prepare_env()
 
+        if args.stdin:
+            self.get_json().set('**/uart/stdin', True)
+
         if args.vcd:
-            self.get_json().set('gvsoc/vcd/active', True)
+            self.get_json().set('gvsoc/events/enabled', True)
 
         for trace in args.traces:
-            self.get_json().set('gvsoc/trace', trace)
+            self.get_json().set('gvsoc/traces/include_regex', trace)
 
         if args.trace_level is not None:
-            self.get_json().set('gvsoc/trace-level', args.trace_level)
+            self.get_json().set('gvsoc/traces/level', args.trace_level)
+
+        if args.trace is not None:
+            self.get_json().set('gvsoc/traces/enabled', args.trace)
 
         for event in args.events:
-            self.get_json().set('gvsoc/event', event)
+            self.get_json().set('gvsoc/events/include_regex', event)
 
         for tag in args.event_tags:
-            self.get_json().set('gvsoc/vcd/tags', tag)
+            self.get_json().set('gvsoc/events/tags', tag)
 
         if args.format is not None:
-            self.get_json().set('gvsoc/vcd/format', args.format)
+            self.get_json().set('gvsoc/events/format', args.format)
 
         if args.gtkw:
-            self.get_json().set('gvsoc/vcd/gtkw', True)
+            self.get_json().set('gvsoc/events/gtkw', True)
 
 
     def devices(self):
@@ -1188,14 +1204,26 @@ class Runner(Platform):
         self.gen_rom_stimuli = False
 
         if self.args.debug_syms:
-            for binary in self.get_json().get('**/runner/binaries').get_dict():
+            debug_binaries = self.get_json().get('**/runner/binaries').get_dict()
+            rom_binary = self.get_json().get_child_str('**/soc/rom/binary')
+
+            if rom_binary is not None:
+                try:
+                    rom_binary = eval(rom_binary)
+                except:
+                    rom_binary = rom_binary
+                    raise
+                
+                if os.path.exists(rom_binary):
+                    debug_binaries.append(rom_binary)
+
+            for binary in debug_binaries:
                 debug_binary = binary + '.debugInfo'
                 self.get_json().set('**/debug_binaries', debug_binary)
 
         comps_conf = self.get_json().get('**/fs/files')
 
-        if comps_conf is not None or self.get_json().get_child_bool('**/runner/boot_from_flash'):
-
+        if self.get_json().get('**/flash/preload_file') is None and (comps_conf is not None and len(comps_conf.get_dict()) != 0) or self.get_json().get_child_bool('**/runner/boot_from_flash'):
             self.gen_flash_stimuli = True
 
         if self.get_json().get('**/soc/debug_rom/stim_file') is not None:
@@ -1238,6 +1266,7 @@ class Runner(Platform):
                     raise Exception('Error while generating debug symbols information, make sure the toolchain and the binaries are accessible ')
 
         comps = []
+        raw_fs = self.get_json().get_str('**/flash/raw_fs')
         comps_conf = self.get_json().get('**/flash/fs/files')
         if comps_conf is not None:
             comps = comps_conf.get_dict()
@@ -1247,7 +1276,6 @@ class Runner(Platform):
             stim.add_binary(self.boot_binary)
             stim.add_area(self.get_json().get_child_int('**/rom/base'), self.get_json().get_child_int('**/rom/size'))
             stim.gen_stim_bin('stimuli/rom.bin')
-
 
         if self.gen_flash_stimuli:
 
@@ -1265,6 +1293,7 @@ class Runner(Platform):
                 raw_stim=self.get_flash_preload_file(),
                 bootBinary=binary,
                 comps=comps,
+                raw_fs=raw_fs,
                 verbose=self.get_json().get('**/runner/verbose').get(),
                 archi=self.get_json().get('**/pulp_chip_family').get(),
                 flashType=self.get_json().get('**/runner/flash_type').get(),
@@ -1274,10 +1303,6 @@ class Runner(Platform):
         if self.get_json().get('**/efuse') is not None:
             efuse = runner.stim_utils.Efuse(self.get_json(), verbose=self.get_json().get('**/runner/verbose').get())
             efuse.gen_stim_txt('efuse_preload.data')
-
-        return 0
-
-    def run(self):
 
         autorun_conf = self.get_json().get('**/debug_bridge/autorun')
         if autorun_conf is not None and autorun_conf.get_bool() and not self.config.getOption('reentrant'):
@@ -1344,84 +1369,48 @@ class Runner(Platform):
             if start_value != None:
                 self.get_json().get('**/plt_loader').set('start_value', '0x%x' % start_value)
 
-        if self.get_json().get('**/fs/files') is not None or self.get_json().get_child_bool('**/runner/boot_from_flash'):
+        files_conf = self.get_json().get('**/fs/files')
+        if self.get_json().get('**/flash/preload_file') is None and ((files_conf is not None and len(files_conf.get_dict())) or self.get_json().get_child_bool('**/runner/boot_from_flash')):
             if self.get_json().get('**/flash') is not None:
                 self.get_json().get('**/flash').set('preload_file', self.get_flash_preload_file())
 
+        gvsoc_config = self.get_json().get('gvsoc')
+
+        debug_mode = gvsoc_config.get_bool('traces/enabled') or gvsoc_config.get_bool('events/enabled') or len(gvsoc_config.get('traces/include_regex').get()) != 0 or len(gvsoc_config.get('events/include_regex').get()) != 0
+        self.get_json().get('**/gvsoc').set('debug-mode', debug_mode)
+
+        plt_config = os.path.join(os.getcwd(), 'plt_config.json')
+        os.environ['PULP_CONFIG_FILE'] = plt_config
+
+        gen_gtkw_files(self.get_json(), gvsoc_config)
 
         with open('plt_config.json', 'w') as file:
             file.write(self.get_json().dump_to_string())
 
+        return 0
 
-        os.environ['PULP_CONFIG_FILE'] = os.path.join(os.getcwd(), 'plt_config.json')
-
-        top = self.get_json().get_child_str('system_tree/vp_class')
-
-        if top is None:
-            raise Exception("The specified configuration does not contain any"
-                            " top component")
+    def run(self):
 
         gvsoc_config = self.get_json().get('gvsoc')
 
-        gen_gtkw_files(self.get_json(), gvsoc_config)
-
-        debug_mode = gvsoc_config.get_bool('vcd/active') or len(gvsoc_config.get('trace').get()) != 0 or len(gvsoc_config.get('event').get()) != 0
-
-        power_engine = vp.power_engine.component(name=None, config=gvsoc_config, debug=debug_mode)
-
-        time_engine = power_engine.new(
-            name=None,
-            component='vp.time_domain',
-            config=self.get_json()
-        )
-
-        trace_engine = time_engine.new(
-            name=None,
-            component='vp.trace_engine',
-            config=gvsoc_config
-        )
-
-        top_comp = time_engine.new(
-            name='sys',
-            component=top,
-            config=self.get_json().get('system_tree')
-        )
-
-        trace_engine.get_port('out').bind_to(top_comp.get_port('trace'))
-
-        power_engine.bind()
-
-        power_engine.post_post_build_all()
-
-        power_engine.pre_start_all()
-
-        power_engine.start_all()
-
-        power_engine.post_start_all()
-
-        power_engine.final_bind()
-
-        power_engine.reset_all(True)
-
-        if not self.get_json().get_child_bool('**/gvsoc/use_external_bridge'):
-            power_engine.reset_all(False)
-
-        power_engine.load_all()
-
-        status = time_engine.run()
-
-        power_engine.stop_all()
-
-        if status == 'killed':
-          print ('The top engine was not responding and was killed')
-          return -1
-        elif status == 'error':
-          return -1
+        debug_mode = gvsoc_config.get_bool('traces/enabled') or gvsoc_config.get_bool('events/enabled') or len(gvsoc_config.get('traces/include_regex').get()) != 0 or len(gvsoc_config.get('events/include_regex').get()) != 0
+        
+        if debug_mode:
+            launcher = 'gvsoc_launcher_debug'
         else:
-          return time_engine.run_status()
+            launcher = 'gvsoc_launcher'
 
+        plt_config = os.path.join(os.getcwd(), 'plt_config.json')
+        
+        os.environ['PULP_CONFIG_FILE'] = plt_config
+        
+        if self.args.cmd:
+            print ('GVSOC command:')
+            print ('%s --config=%s' % (launcher, plt_config))
+            return 0
+        else:
+            return os.execvp(launcher, [launcher, '--config=' + plt_config])
 
-        return 0
 
     def power(self):
         if os.system('power_report_extract --report=power_report.csv --dump --config=plt_config.json --output=power_synthesis.txt') != 0:

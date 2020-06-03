@@ -1,21 +1,24 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import re
 from typing import Mapping
-from .tflite.new_tflite_graph_all import create_graph as create_tflite_graph
-from .tflite.new_tflite_graph_all import NNGraph
-
-# from .darknet.darknet_graph import create_graph as create_darknet_graph
-# from .darknet.darknet_tensor import load_tensors as load_dark_net_tensors
+from .tflite.new_tflite_graph_all import TfliteImporter, NNGraph
 
 GRAPH_IMPORTERS = {
-    'tflite': {'matches':[r".*\.tflite$"], 'importer':create_tflite_graph, 'loader': None},
-    # 'darknet': {'matches':[r".*\.cfg$"], 'importer':create_darknet_graph,\
-    #     'loader': load_dark_net_tensors}
+    'tflite': {'matches':[r".*\.tflite$"], 'importer':TfliteImporter, 'loader': None},
 }
 
 class ImportException(Exception):
@@ -44,7 +47,8 @@ def create_graph(filename: str, graph_format: str = None, opts: Mapping = None) 
     for k, v in GRAPH_IMPORTERS.items():
         for match in v['matches']:
             if re.search(match, filename):
-                graph = v['importer'](filename, opts)
+                importer = v['importer']()
+                graph = importer.create_graph(filename, opts)
                 graph.set_load_function(v['loader'])
                 return graph
 

@@ -1,5 +1,3 @@
-COMPONENTS += cpu/iss/iss
-
 COMMON_SRCS = cpu/iss/vp/src/iss_wrapper.cpp cpu/iss/src/iss.cpp cpu/iss/src/insn_cache.cpp cpu/iss/src/csr.cpp cpu/iss/src/decoder.cpp cpu/iss/src/trace.cpp cpu/iss/flexfloat/flexfloat.c
 
 COMMON_CFLAGS = -DRISCV=1 -DRISCY -I$(CURDIR)/cpu/iss/include -I$(CURDIR)/cpu/iss/vp/include -I$(CURDIR)/cpu/iss/flexfloat -march=native -fno-strict-aliasing
@@ -94,5 +92,7 @@ $(eval $(call declare_iss_check_class,$(fc/iss_class)))
 endif
 
 ifneq '$(pe/iss_class)' ''
+ifneq '$(pe/iss_class)' '$(fc/iss_class)'
 $(eval $(call declare_iss_check_class,$(pe/iss_class)))
+endif
 endif

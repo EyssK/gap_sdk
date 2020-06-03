@@ -128,6 +128,9 @@ public:
   Udma_transfer *current_cmd;
   Udma_queue<vp::io_req> *ready_reqs;
 
+  uint32_t saddr;
+  uint32_t size;
+  
 protected:
   vp::trace     trace;
   udma *top;
@@ -142,9 +145,6 @@ private:
   virtual void handle_ready_req(vp::io_req *req);
   virtual void handle_ready_reqs();
 
-  uint32_t saddr;
-  uint32_t size;
-  
   int transfer_size;
   bool continuous_mode;
 
@@ -170,7 +170,7 @@ public:
   Udma_rx_channel(udma *top, int id, string name) : Udma_channel(top, id, name) {}
   bool is_tx() { return false; }
   void reset(bool active);
-  void push_data(uint8_t *data, int size);
+  bool push_data(uint8_t *data, int size);
   bool has_cmd() { return this->current_cmd != NULL; }
 
 private:
@@ -593,10 +593,10 @@ private:
 class Tcdm_periph_v1;
 
 
-class Tcdm_channel : public Udma_tx_channel
+class Tcdm_tx_channel : public Udma_tx_channel
 {
 public:
-  Tcdm_channel(udma *top, Tcdm_periph_v1 *periph, int id, string name);
+  Tcdm_tx_channel(udma *top, Tcdm_periph_v1 *periph, int id, string name);
   void handle_ready_reqs();
 
 private:
@@ -609,9 +609,22 @@ private:
 };
 
 
+class Tcdm_rx_channel : public Udma_rx_channel
+{
+public:
+  Tcdm_rx_channel(udma *top, Tcdm_periph_v1 *periph, int id, string name);
+  void handle_ready();
+
+private:
+
+  Tcdm_periph_v1 *periph;
+};
+
+
 class Tcdm_periph_v1 : public Udma_periph
 {
-  friend class Tcdm_channel;
+  friend class Tcdm_tx_channel;
+  friend class Tcdm_rx_channel;
 
 public:
   Tcdm_periph_v1(udma *top, int id, int itf_id);
@@ -634,6 +647,8 @@ private:
   Udma_queue<vp::io_req> *out_waiting_reqs;
 
   vp::clock_event *pending_reqs_event;
+
+  int read_size;
 
   vp::trace     trace;
 };
@@ -675,9 +690,14 @@ public:
 
 class I2s_rx_channel : public Udma_rx_channel
 {
+  friend class I2s_periph_v1;
+  
 public:
   I2s_rx_channel(udma *top, I2s_periph_v1 *periph, int id, int event_id, string name);
   void handle_rx_bit(int sck, int ws, int bit);
+
+protected:
+  bool wait_ws_start = false;
 
 private:
   void reset(bool active);
@@ -715,7 +735,7 @@ private:
   vp::io_req_status_e check_clkgen1();
   vp::io_req_status_e reset_clkgen0();
   vp::io_req_status_e reset_clkgen1();
-  void handle_clkgen_tick(int clkgen, int itf);
+  void handle_clkgen_tick(int clkgen);
 
   vp::trace     trace;
   vp::i2s_slave ch_itf[2];
@@ -731,6 +751,8 @@ private:
   vp::clock_event *clkgen1_event;
 
   int sck[2];
+  int current_ws[2];
+  int current_ws_count[2];
 };
 
 #endif
@@ -879,7 +901,7 @@ class udma : public vp::component
 
 public:
 
-  udma(const char *config);
+  udma(js::config *config);
 
   int build();
   void start();

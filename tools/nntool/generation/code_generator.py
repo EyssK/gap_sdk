@@ -1,69 +1,51 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import os
 
+from generation.generators import RegisteredGeneratorsMixin
+from generation.name_cache import NameCache
+from graph.types import (ConcatParameters, ConstantInputParameters,
+                         FilterParameters, InputParameters, OutputParameters,
+                         ReshapeParameters, TransposeParameters)
 from utils.node_id import NodeId
 
-from graph.types import (ActivationParameters, Conv2DParameters, FcParameters,
-                         FilterParameters, FusionParameters, InputParameters,
-                         PoolingParameters, SoftMaxParameters)
-from .bindings import (TT_TENSOR_TYPES, CommentBindingList,
-                       FunctionBindingList, GArgEdge, GArgNode, GNodeArgEdge,
-                       GNodeArgNode, Imm, NodeBindingList)
+from .at_types.gen_ctrl import gen_graph_ctrl, gen_kernel_ctrl
+from .at_types.tc_arg_info import LocalArgInfo
+from .at_types.tensor_stack import TensorStack
+from .autotiler_options import AUTO_TILER_OPTIONS, DEFAULT_GEN_OPTS
+from .bindings import (TT_TENSOR_TYPES, FunctionBindingList, GArgEdge,
+                       GArgNode, Imm)
 from .checksums import calc_value_checksum, checksum_func
 from .code_block import CodeBlock
-from .code_generators import (gen_const_info, gen_conv_pool_relu,
-                              gen_global_decl, gen_input_decl, gen_linear_relu,
-                              gen_local_decl, gen_output_decl, gen_softmax)
-from .memory_device_info import MemoryDeviceInfos
 from .write_constants import write_constants
+from generation.generators.globals.global_names import *
 
 LOG = logging.getLogger("nntool." + __name__)
 
-DEFAULT_GEN_OPTS = {
-    'default_input_home_location': 'AT_MEM_L2',
-    'default_input_exec_location': 'AT_MEM_L2',
-    'default_output_home_location': 'AT_MEM_L2',
-    'default_output_exec_location': 'AT_MEM_L2',
-    'default_global_home_location': 'AT_MEM_L3_HFLASH',
-    'default_global_exec_location': 'AT_MEM_UNDEF',
-    'default_local_location': 'AT_MEM_UNDEF',
-    'generate_checksums': False,
-    'include_project_header': False,
-    'checksum_file': '',
-    'dump_tensors': False,
-    'tensor_directory': '.',
-    'model_directory': '.',
-    'model_file': 'model.c',
-    'memory_devices': MemoryDeviceInfos.default()
-}
 
-DEFAULT_GEN_OPTS_DESCRIPTIONS = {
-    'default_input_home_location': 'default home location for inputs for code generation',
-    'default_input_exec_location': 'default exec location for inputs for code generation',
-    'default_output_home_location': 'default home location for outputs for code generation',
-    'default_output_exec_location': 'default exec location for outputs for code generation',
-    'default_global_home_location': 'default home location for globals for code generation',
-    'default_global_exec_location': 'default exec location for globals for code generation',
-    'default_local_location': 'default location for locals for code generation',
-    'include_project_header': 'Include a header file called "GraphName.h" in generated code',
-    'tensor_directory': 'directory to dump tensors to',
-    'model_directory': 'directory to dump model to',
-    'model_file': 'filename for model',
-    'dump_tensors': 'write the tensors to files. currently only works in emulation mode.'
-}
-
-class CodeGenerator():
+class CodeGenerator(RegisteredGeneratorsMixin):
     def __init__(self, G, naming_convension, opts=None):
         self.G = G
         self.naming_convension = naming_convension
-        self.name_cache = {}
+        self.name_cache = NameCache()
         self.bindings = []
+        self.kernels = []
+        self.globals = []
+        self.stacked_tensors = []
+        self.locals = []
         self.inputs_by_name = {}
         self.func_bindings = []
         self.include_files = ["CNN_Basic_Kernels.h"]
@@ -72,12 +54,25 @@ class CodeGenerator():
             self.opts.update(opts)
         if self.opts['include_project_header']:
             self.include_files.append(self.project_name + '.h')
-        if self.opts['dump_tensors']:
-            self.include_files.append('helpers.h')
+        has_vcd = False
+        for step in G.graph_state.steps:
+            node = step['node']
+            if node.at_options.vcd_trace_on is not None:
+                has_vcd = True
+        if has_vcd:
+            self.include_files.append('hal/gvsoc/gvsoc.h')
 
     @property
     def project_name(self):
         return self.naming_convension.get_project_name()
+
+    @property
+    def basic_ker_header(self):
+        if self.G.graph_identity.quantization_type == 'SQ8':
+            return "CNN_BasicKernels_SQ8.h"
+        if self.G.graph_identity.quantization_type == 'POW2':
+            return "CNN_BasicKernels.h"
+        return ValueError("Quantization type not known %s", self.G.graph_identity.quantization_type)
 
     def get_edge_name(self, eparams):
         return self.name_cache[eparams]['edge']
@@ -86,8 +81,30 @@ class CodeGenerator():
         return self.name_cache[params][target]
 
     def memory_device_generator(self, indent=0):
+        self.opts['memory_devices'].set_l2_ram_ext_managed(self.opts['l2_ram_ext_managed'])
+        self.opts['memory_devices'].set_l3_ram_ext_managed(self.opts['l3_ram_ext_managed'])
+        self.opts['memory_devices'].set_l3_flash_ext_managed(self.opts['l3_flash_ext_managed'])
+
         code_block = CodeBlock(starting_indent=indent)
         self.opts['memory_devices'].gen(self.G, code_block)
+        return str(code_block)
+
+    def options_type_generator(self, option_type, code_block):
+        if option_type == 'kernel':
+            gen_ctrl = gen_kernel_ctrl
+        else:
+            gen_ctrl = gen_graph_ctrl
+
+        for option in filter(lambda x: x['type'] == option_type, AUTO_TILER_OPTIONS):
+            opt_name = option['name']
+            opt_l_name = opt_name.lower()
+            if self.opts[opt_l_name] != option['default']:
+                gen_ctrl('AT_' + opt_name, self.opts[opt_l_name], code_block)
+
+    def options_generator(self, indent=0):
+        code_block = CodeBlock(starting_indent=indent)
+        self.options_type_generator('kernel', code_block)
+        self.options_type_generator('graph', code_block)
         return str(code_block)
 
     def binding_generator(self, indent=0):
@@ -96,243 +113,234 @@ class CodeGenerator():
             binding.gen_bindings(self, code_block)
         return str(code_block)
 
+    @staticmethod
+    def real_up_connection(G, eparams, set_real=False):
+        while isinstance(eparams.creating_node, ReshapeParameters) or \
+            (isinstance(eparams.creating_node, TransposeParameters) and
+             eparams.creating_node.transpose_dimension == 1):
+            set_real = True
+            eparams = G.in_edges(eparams.creating_node.name)[0].params
+        return eparams, set_real
+
+    @staticmethod
+    def real_down_connection(G, eparams):
+        oedge = G.out_edges(eparams.creating_node.name)[0]
+        while isinstance(oedge.to_node, ReshapeParameters) or \
+            (isinstance(oedge.to_node, TransposeParameters) and
+             oedge.to_node.transpose_dimension == 1):
+            oedge = G.out_edges(oedge.to_node.name)[0]
+        return oedge
+
     def local_generator(self, indent=0):
-        code_block = CodeBlock(starting_indent=indent + 1)
-        num_locals = 0
         edges = set(edge.params for edge in self.G.edges())
         sorted_edges = list(edges)
         sorted_edges.sort(key=lambda eparams: eparams.creating_step)
         for eparams in sorted_edges:
+            # check if the following real node is an output
+            if isinstance(eparams.creating_node, ConcatParameters):
+                rout_edge = self.real_down_connection(self.G, eparams)
+                if isinstance(rout_edge.to_node, OutputParameters):
+                    rout_eparams = rout_edge.params
+                    cname = self.naming_convension.get_edge_name(rout_eparams.creating_node.name,
+                                                                 rout_eparams.creating_step,
+                                                                 rout_eparams.edge_type,
+                                                                 rout_eparams.edge_order)
+                    LOG.info("edge from step %s %s is not used and is replaced with edge to step %s:%s %s cname: %s",
+                             eparams.creating_node.step_idx, eparams.creating_node.name,
+                             rout_eparams.creating_node.name, rout_eparams.creating_node.step_idx,
+                             rout_eparams.creating_step, cname)
+                    self.name_cache.set(eparams, 'edge', cname)
+                    continue
+
+            rin_eparams, set_real = self.real_up_connection(self.G, eparams)
+            if rin_eparams.edge_type == "out":
+                # The edge was marked as an output so find the real edge down
+                rin_eparams = self.real_down_connection(self.G, rin_eparams).params
+                self.name_cache.set(eparams, 'edge', rin_eparams.name)
+                continue
+            else:
+                if set_real:
+                    # Code will not be generated for reshape or empty transpose so the input to the
+                    # following node is the input to this node
+                    cname = self.naming_convension.get_edge_name(rin_eparams.creating_node.name,
+                                                                 rin_eparams.creating_step,
+                                                                 rin_eparams.edge_type,
+                                                                 rin_eparams.edge_order)
+                    LOG.info("edge from step %s %s is not used and is replaced with edge from step %s:%s %s cname: %s",
+                             eparams.creating_node.step_idx, eparams.creating_node.name,
+                             rin_eparams.creating_node.name, rin_eparams.creating_node.step_idx,
+                             rin_eparams.creating_step, cname)
+                    self.name_cache.set(eparams, 'edge', cname)
+                    continue
+
             cname = self.naming_convension.get_edge_name(eparams.creating_node.name,
                                                          eparams.creating_step,
                                                          eparams.edge_type,
                                                          eparams.edge_order)
+
             out_q = self.G.quantization[NodeId(eparams.creating_node, None)]\
                 .out_qs[eparams.creating_node_idx]
-            self.name_cache[eparams] = {'edge': cname}
-            if eparams.edge_type != "in_out":
+            self.name_cache.set(eparams, 'edge', cname)
+            if eparams.edge_type != "in_out" or eparams.is_alias:
                 continue
-            if num_locals != 0:
+            self.locals.append(LocalArgInfo(out_q.ctype, eparams.name,
+                                            self.opts['default_local_location']))
+
+        code_block = CodeBlock(starting_indent=indent)
+        code_block.write_start("CArgs({},", len(self.locals))
+        code_block.indent()
+        first = True
+        for local_def in self.locals:
+            if first:
+                first = False
+            else:
                 code_block.append_last(',')
-            gen_local_decl(eparams, out_q, self.opts['default_local_location'], code_block)
-            num_locals += 1
+            code_block.write(str(local_def))
         code_block.deindent()
-        code_block.write_start("CArgs({},", num_locals)
         code_block.write(")")
+        return str(code_block)
+
+    def stack_generator(self, indent=0):
+        edges = set(edge.params for edge in self.G.edges())
+        sorted_edges = list(edges)
+        sorted_edges.sort(key=lambda eparams: eparams.creating_step)
+        concat_edges = list([eparams for eparams in sorted_edges if isinstance(
+            eparams.creating_node, ConcatParameters)])
+        for eparams in concat_edges:
+            node = eparams.creating_node
+            cname_out = self.name_cache[eparams]['edge']
+            in_edge_names = [self.name_cache[edge.params]['edge']
+                             for edge in self.G.in_edges(node.name)]
+            self.stacked_tensors.append(TensorStack(cname_out, in_edge_names))
+
+        code_block = CodeBlock(starting_indent=indent)
+        if len(self.stacked_tensors) == 0:
+            code_block.comment("no concats in graph so not stacked tensors created")
+        else:
+            for stacked_tensor in self.stacked_tensors:
+                code_block.write(str(stacked_tensor))
         return str(code_block)
 
     def global_generator(self, indent=0):
+        self.generate_inputs()
+        self.generate_constants()
+        self.generate_outputs()
         code_block = CodeBlock(starting_indent=indent + 1)
-
-        num_globals = self.generate_inputs(code_block)
-        num_globals = self.generate_constants(num_globals, code_block)
-        num_globals = self.generate_outputs(num_globals, code_block)
+        code_block.write("CArgs({}", len(self.globals))
+        code_block.indent()
+        first = False
+        for global_def in self.globals:
+            if first:
+                first = False
+            else:
+                code_block.append_last(',')
+            if global_def.comment is not None:
+                code_block.comment(global_def.comment)
+            code_block.write(str(global_def))
 
         code_block.deindent()
-        code_block.write_start("CArgs({},", num_globals)
         code_block.write(")")
         return str(code_block)
 
-    def generate_outputs(self, num_globals, code_block):
+    def generate_outputs(self):
         outputs = set()
-        for node in self.G.outputs():
-            in_qs = self.G.quantization[NodeId(node)].in_qs
+        for node in self.G.output_nodes():
+            qrec = self.G.quantization[NodeId(node)]
             for edge in self.G.in_edges(node.name):
-                eparams = edge.params
+                eparams, _ = self.real_up_connection(self.G, edge.params)
                 if eparams in outputs:
                     continue
+                eparams.edge_type = "out"
                 outputs.add(eparams)
-                if num_globals != 0:
-                    code_block.append_last(',')
-                gen_output_decl(eparams,
-                                in_qs[edge.to_idx],
-                                self.opts['default_output_home_location'],
-                                self.opts['default_output_exec_location'],
-                                code_block)
-                num_globals += 1
-        return num_globals
+                self.execute_phase("outputs", node, qrec, edge)
 
-    def generate_constants(self, num_globals, code_block):
-        for step_idx, pnode, _, fnode in self.G.nodes_iterator():
+    def generate_constants(self):
+        for _, pnode, _, fnode in self.G.nodes_iterator():
             anode = pnode if not fnode else fnode
-            if isinstance(anode, FilterParameters):
-                qrec = self.G.quantization[NodeId(pnode, fnode)]
-                cname = self.naming_convension.\
-                    get_global_name(pnode.name, step_idx, pnode, "weights")
-                c_entry = self.name_cache.get(anode)
-                if not c_entry:
-                    c_entry = {}
-                    self.name_cache[anode] = c_entry
-                c_entry['weights'] = cname
-                if num_globals != 0:
-                    code_block.append_last(',')
-                const_info = gen_const_info(os.path.join(self.opts['tensor_directory'],
-                                                         cname+".tensor"), qrec.weights_q)
-                gen_global_decl(cname, qrec.weights_q,
-                                self.opts['default_global_home_location'],
-                                self.opts['default_global_exec_location'],
-                                code_block,
-                                const_info=const_info)
-                num_globals += 1
+            qrec = self.G.quantization.get(NodeId(pnode, fnode))
+            self.execute_phase("globals", anode, qrec, pnode, fnode)
 
-                # biases are always generated even if they are 0
-                if anode.has_bias:
-                    biases_q = qrec.biases_q
-                else:
-                    biases_q = qrec.out_q
-
-                cname = self.naming_convension.\
-                    get_global_name(pnode.name, step_idx, pnode, "biases")
-                c_entry['biases'] = cname
-                if num_globals != 0:
-                    code_block.append_last(',')
-                const_info = gen_const_info(os.path.join(self.opts['tensor_directory'],
-                                                         cname+".tensor"), biases_q)
-                gen_global_decl(cname, biases_q,
-                                self.opts['default_global_home_location'],
-                                self.opts['default_global_exec_location'],
-                                code_block,
-                                const_info=const_info)
-                num_globals += 1
-        return num_globals
-
-    def generate_inputs(self, code_block):
-        num_globals = 0
+    def generate_inputs(self):
         inputs = set()
-        for node in self.G.inputs():
-            out_qs = self.G.quantization[NodeId(node)].out_qs
+        for node in self.G.input_nodes():
+            qrec = self.G.quantization[NodeId(node)]
             for edge in self.G.out_edges(node.name):
                 eparams = edge.params
                 if eparams in inputs:
                     continue
-                if num_globals != 0:
-                    code_block.append_last(',')
                 inputs.add(eparams)
-                gen_input_decl(eparams,
-                               out_qs[edge.from_idx],
-                               self.opts['default_input_home_location'],
-                               self.opts['default_input_exec_location'],
-                               code_block)
-                num_globals += 1
-        return num_globals
+                self.execute_phase("inputs", node, qrec, edge)
+
+    def cnn_generators(self):
+        if self.G.graph_identity.quantization_type == 'SQ8':
+            return "\"CNN_Generators_SQ8.h\""
+        if self.G.graph_identity.quantization_type == 'POW2':
+            return "\"CNN_Generators.h\""
+        raise ValueError()
+
+    def cnn_kernels(self):
+        if self.G.graph_identity.quantization_type == 'SQ8':
+            return "\"CNN_BasicKernels_SQ8.h\""
+        if self.G.graph_identity.quantization_type == 'POW2':
+            return "\"CNN_BasicKernels.h\""
+        raise ValueError()
+
+    def extra_includes_generator(self, indent=0):
+        code_block = CodeBlock(starting_indent=indent)
+        code_block.write("#include \"nntool_extra_generators.h\"")
+        return str(code_block)
+
+    def extra_includes_kernels(self, indent=0):
+        code_block = CodeBlock(starting_indent=indent)
+        code_block.write("\"nntool_extra_kernels.h\"")
+        return str(code_block)
 
     def kernel_generator(self, indent=0):
         code_block = CodeBlock(starting_indent=indent)
-        last_node_was_input = False
-        for step_idx, node, _, fnode in self.G.nodes_iterator():
-            if fnode:
-                continue
+        for step_idx, node, _, _ in self.G.nodes_iterator(yield_fusions=False):
             name = node.name
             cname = self.naming_convension.get_node_name(name, step_idx, node)
-            self.name_cache[node] = {'node': cname}
-            code_block.comment(name)
+            if node.at_options.vcd_trace_on is not None:
+                self.add_vcd_trace_binding(cname, node.at_options.vcd_trace_on)
+            self.name_cache.set(node, 'node', cname)
             in_eparams = self.G.get_in_params(name)
             out_eparams = self.G.get_out_params(name)
-            qrec = self.G.quantization[NodeId(node)]
-            if isinstance(node, Conv2DParameters):
-                self.set_conv_bindings(step_idx, in_eparams, out_eparams, cname, node, qrec)
-                gen_conv_pool_relu(cname, node, qrec, None,
-                                   None, None, None, code_block=code_block)
-            elif isinstance(node, PoolingParameters):
-                self.set_in_out_bindings(in_eparams, out_eparams, cname, node, qrec)
-                gen_conv_pool_relu(cname, None, None,
-                                   node, qrec, None, None, code_block=code_block)
-            elif isinstance(node, ActivationParameters):
-                self.set_in_out_bindings(in_eparams, out_eparams, cname, node, qrec)
-                gen_conv_pool_relu(cname, None, None,
-                                   None, None, node, qrec, code_block=code_block)
-            elif isinstance(node, FcParameters):
-                self.set_fc_bindings(step_idx, in_eparams, out_eparams, cname, node, qrec)
-                gen_linear_relu(cname, node, qrec, None, None, code_block=code_block)
-            elif isinstance(node, SoftMaxParameters):
-                self.set_softmax_bindings(in_eparams, out_eparams, cname, node, qrec)
-                gen_softmax(cname, node, qrec, code_block=code_block)
-            elif isinstance(node, FusionParameters):
-                cnodes = node.contained_nodes()
-                quants = [self.G.quantization[NodeId(node, fnode)] for fnode in cnodes]
-                self.set_conv_bindings(step_idx, in_eparams, out_eparams, cname, cnodes[0], quants[0])
-                if node.fusion_type == "conv_active_pool":
-                    gen_conv_pool_relu(cname, cnodes[0], quants[0], cnodes[2], quants[2],
-                                       cnodes[1], quants[1], code_block=code_block)
-                elif node.fusion_type == "conv_pool_active":
-                    gen_conv_pool_relu(cname, cnodes[0], quants[0], cnodes[1], quants[1],
-                                       cnodes[2], quants[2], code_block=code_block)
-                elif node.fusion_type == "conv_active":
-                    gen_conv_pool_relu(cname, cnodes[0], quants[0], None, None, cnodes[1],
-                                       quants[1], code_block=code_block)
-                elif node.fusion_type == "conv_pool":
-                    gen_conv_pool_relu(cname, cnodes[0], quants[0], cnodes[1], quants[1], None,
-                                       None, code_block=code_block)
-            elif not isinstance(node, InputParameters):
-                LOG.warning("No kernel generated for parameter type %s", node.__class__.__name__)
+            try:
+                qrec = self.G.quantization[NodeId(node)]
+            except KeyError as err:
+                LOG.error("Quantization record not found for node %s", node.name)
+                raise err
+
+            if isinstance(node, ReshapeParameters):
+                if node.transpose_in is not None or node.transpose_out is not None:
+                    LOG.error("Don't know how to generate kernel \
+                        for a reshape that has a transpose.")
+                    return ""
                 continue
-            else:
-                last_node_was_input = True
+            elif isinstance(node, (InputParameters, OutputParameters, ConstantInputParameters)):
                 continue
-            if self.opts['generate_checksums']:
-                if last_node_was_input:
-                    self.add_checksum_binding(cname, name, step_idx, in_eparams, True)
-                self.add_checksum_binding(cname, name, step_idx, out_eparams, False)
-            if self.opts['dump_tensors']:
-                if last_node_was_input:
-                    self.add_dump_tensors_binding(cname, name, step_idx, in_eparams, qrec, True)
-                self.add_dump_tensors_binding(cname, name, step_idx, out_eparams, qrec, False)
-            last_node_was_input = False
+            elif not isinstance(node, (ConcatParameters)):
+                self.execute_phase("bindings", node, qrec, in_eparams, out_eparams, cname)
+                if not self.execute_phase("kernels", node, qrec, in_eparams, out_eparams, cname):
+                    raise NotImplementedError(("Don't know how to generate kernel for parameter type %s %s. " +
+                                               "Perhaps you need to run some fusions.") % (node.name,
+                                                                                           node.__class__.__name__))
+
+            # if self.opts['generate_checksums']:
+            #     if last_node_was_input:
+            #         self.add_checksum_binding(cname, name, step_idx, in_eparams, True)
+            #     self.add_checksum_binding(cname, name, step_idx, out_eparams, False)
+        for kernel in self.kernels:
+            kernel.code(code_block)
         return str(code_block)
 
-    def add_dump_tensors_binding(self, cname, name, step_idx, eparams, qrec, is_input):
-        node = self.G[name]
-        if is_input:
-            dims = node.in_dims[0]
-            qtype = qrec.in_qs[0]
-            tensor_type = TT_TENSOR_TYPES['TT_INPUT']
-            step_idx = self.G.in_edges(name)[0].from_node.step_idx
-        else:
-            dims = node.out_dims[0]
-            qtype = qrec.out_qs[0]
-            tensor_type = TT_TENSOR_TYPES['TT_OUTPUT']
-
+    def add_vcd_trace_binding(self, cname, enable):
         self.func_bindings.append(
             FunctionBindingList(cname,
-                                "dt_write_tensor",
-                                GArgEdge(eparams[0]),
-                                Imm(step_idx),
-                                Imm(tensor_type),
-                                Imm(dims.size()),
-                                Imm(qtype.bits),
-                                Imm(len(dims.shape)),
-                                *[Imm(v) for v in dims.shape],
-                                before=is_input))
-
-    def add_dump_params_binding(self, cname, node: FilterParameters, qrec, step_idx):
-        dims = node.filter
-        qtype = qrec.weights_q
-        tensor_type = TT_TENSOR_TYPES['TT_WEIGHTS']
-        self.func_bindings.append(
-            FunctionBindingList(cname,
-                                "dt_write_tensor",
-                                GArgNode(node, 'weights'),
-                                Imm(step_idx),
-                                Imm(tensor_type),
-                                Imm(dims.size()),
-                                Imm(qtype.bits),
-                                Imm(len(dims.actual_shape)),
-                                *[Imm(v) for v in dims.actual_shape],
+                                "gv_vcd_configure",
+                                Imm(1 if enable else 0),
+                                Imm(0),
                                 before=True))
-        if node.has_bias:
-            qtype = qrec.biases_q
-            tensor_type = TT_TENSOR_TYPES['TT_BIASES']
-            self.func_bindings.append(
-                FunctionBindingList(cname,
-                                    "dt_write_tensor",
-                                    GArgNode(node, 'biases'),
-                                    Imm(step_idx),
-                                    Imm(tensor_type),
-                                    Imm(node.out_dims[0].c),
-                                    Imm(qtype.bits),
-                                    Imm(1),
-                                    Imm(node.out_dims[0].c),
-                                    before=True))
 
     def add_checksum_binding(self, cname, name, step_idx, eparams, before):
         node = self.G[name]
@@ -350,51 +358,34 @@ class CodeGenerator():
                                 before=before)
         )
 
-    def set_in_out_bindings(self, in_eparams, out_eparams, cname, node, node_q):
-        self.bindings.append(
-            CommentBindingList("Node {} inq {} outq {}", node.name,
-                               node_q.in_qs[0].q, node_q.out_qs[0].q)
-        )
-        self.bindings.append(
-            NodeBindingList(cname, GNodeArgEdge(in_eparams[0]),
-                            GNodeArgEdge(out_eparams[0], "GNA_OUT")))
-
-    def set_softmax_bindings(self, in_eparams, out_eparams, cname, params, node_q):
-        self.bindings.append(
-            CommentBindingList("Node {} inq {} outq {}", params.name,
-                               node_q.in_qs[0].q, node_q.out_qs[0].q)
-        )
-        self.bindings.append(
-            NodeBindingList(cname, GNodeArgEdge(in_eparams[0]),
-                            GNodeArgEdge(out_eparams[0], "GNA_OUT"),
-                            Imm(node_q.in_qs[0].q)))
-
-    def set_conv_bindings(self, step_idx, in_eparams, out_eparams, cname, params, conv_q):
-        self.bindings.append(
-            CommentBindingList("Node {} inq {} weightsq {} outq {}", cname,
-                               conv_q.in_qs[0].q, conv_q.weights_q.q, conv_q.out_qs[0].q)
-        )
-        self.bindings.append(
-            NodeBindingList(cname, GNodeArgEdge(in_eparams[0]), GNodeArgNode(params, 'weights'),
-                            GNodeArgNode(params, 'biases'),
-                            GNodeArgEdge(out_eparams[0], "GNA_OUT"),
-                            Imm(conv_q.in_qs[0].q + conv_q.weights_q.q - conv_q.out_qs[0].q)))
-        if self.opts['dump_tensors']:
-            self.add_dump_params_binding(cname, params, conv_q, step_idx)
-
-    def set_fc_bindings(self, step_idx, in_eparams, out_eparams, cname, params, linear_q):
-        self.bindings.append(
-            CommentBindingList("Node {} inq {} weightsq {} outq {}", params.name,
-                               linear_q.in_qs[0].q, linear_q.weights_q.q, linear_q.out_qs[0].q)
-        )
-        self.bindings.append(
-            NodeBindingList(cname, GNodeArgEdge(in_eparams[0]), GNodeArgNode(params, 'weights'),
-                            GNodeArgNode(params, 'biases'),
-                            GNodeArgEdge(out_eparams[0], "GNA_OUT"),
-                            Imm(linear_q.in_qs[0].q + linear_q.weights_q.q - linear_q.out_qs[0].q),
-                            Imm(linear_q.in_qs[0].q + linear_q.weights_q.q - linear_q.biases_q.q)))
-        if self.opts['dump_tensors']:
-            self.add_dump_params_binding(cname, params, linear_q, step_idx)
-
     def write_constants(self):
-        write_constants(self.G, self.naming_convension, self.opts['tensor_directory'])
+        write_constants(self.globals, tensor_directory=self.opts['tensor_directory'])
+
+    def load_basic_kernel_library(self, indent=0):
+        code_block = CodeBlock(starting_indent=indent)
+        if self.G.graph_identity.quantization_type == 'SQ8':
+            code_block.write("LoadCNN_SQ8_Library();")
+            return str(code_block)
+        if self.G.graph_identity.quantization_type == 'POW2':
+            code_block.write("LoadCNNLibrary();")
+            return str(code_block)
+        return ValueError("Quantization type not known %s", self.G.graph_identity.quantization_type)
+
+    def header_generator(self, indent=0):
+        code_block = CodeBlock(starting_indent=indent)
+        for _, node, _, fnode in self.G.nodes_iterator():
+            if fnode:
+                continue
+            cname = self.name_cache[node]['node']
+            qrec = self.G.quantization[NodeId(node)]
+            code_block.comment(cname)
+            if self.G.graph_identity.quantization_type == 'SQ8':
+                code_block.write("#define {}_OUT_SCALE\t{}".format(cname, qrec.out_qs[0].scale[0]))
+                qscales, qnorms = qrec.out_qs[0].get_quantized_scale()
+                code_block.write("#define {}_OUT_QSCALE\t{}".format(cname, qscales[0]))
+                code_block.write("#define {}_OUT_QNORM\t{}".format(cname, qnorms[0]))
+
+            elif self.G.graph_identity.quantization_type == 'POW2':
+                for out_q in qrec.out_qs:
+                    code_block.write("#define {}_Q\t{}".format(cname, out_q.q))
+        return str(code_block)

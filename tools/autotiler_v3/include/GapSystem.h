@@ -38,10 +38,10 @@ typedef unsigned int rt_pointerT;
 #define gap_freeL1(x, y) free((x))
 #define gap_freeL2(x, y) free((x))
 #else
-#define gap_allocL1(x)     rt_alloc( RT_ALLOC_CL_DATA, (x) )
-#define gap_allocL2(x)     rt_alloc( RT_ALLOC_L2_CL_DATA, (x) )
-#define gap_freeL1(x, y)   rt_free(RT_ALLOC_CL_DATA, (x), (y))
-#define gap_freeL2(x, y)   rt_free(RT_ALLOC_L2_CL_DATA, (x), (y))
+#define gap_allocL1(x)     pi_l1_malloc( (x) )
+#define gap_allocL2(x)     pi_l2_malloc( (x) )
+#define gap_freeL1(x, y)   pi_l1_free( (x), (y))
+#define gap_freeL2(x, y)   pi_l2_free( (x), (y))
 #endif
 
 /* Cluster id, Core Id */
@@ -180,7 +180,7 @@ static inline void __cl_dma_memcpy_2d(uint32_t ext, uint32_t loc, uint16_t size,
 #define gap_setupbarrier(BarN, CoreM)
 #define gap_waitbarrier(BarN)           pi_cl_team_barrier()
 
-#elif defined(__PULP_OS__)
+#elif defined(__PULP_OS__) || defined(__PULPOS2__)
 //This is used anywhere, better leave undefined
 //#define gap_setupbarrier(BarN, CoreM)   eu_bar_setup(eu_bar_addr(BarN), CoreM)
 #define gap_setupbarrier(BarN, CoreM)   eu_bar_setup(eu_bar_addr(BarN), CoreM)

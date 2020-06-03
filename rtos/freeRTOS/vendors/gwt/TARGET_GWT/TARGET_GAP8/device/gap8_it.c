@@ -29,7 +29,8 @@
  */
 
 #include "gap8_it.h"
-#include "gap_eu.h"
+#include "pmsis/implem/hal/hal.h"
+#include "printf.h"
 
 /* Ecall Table. */
 const void *_ecall_vector[NB_ECALL] = {
@@ -50,7 +51,28 @@ void HardFault_Handler( void )
 void vSetPendSV()
 {
     NVIC->MASK_IRQ_OR = (0x1 << PENDSV_IRQN);
-    EU_FC_EVT_TrigSet(PENDSV_IRQN, 0);
+    hal_eu_fc_evt_trig_set(PENDSV_IRQN, 0);
+}
+
+/*
+ * __pending_task_switch is needed for some corner cases.
+ * A task is delayed, when coming back, tick count may not match quantum,
+ * then task is descheduled. Next times, xTaskGetTickCountFromISR() won't tell
+ * if there are any tasks waiting on time delays.
+ */
+static volatile uint8_t __pending_task_switch = 0;
+uint32_t uTaskCheckQuantum(uint32_t schedule)
+{
+    uint32_t ctx_switch = 0;
+    uint32_t quantum = (uint32_t) configPREEMPTION_QUANTUM;
+    uint32_t tick_count = xTaskGetTickCountFromISR();
+    __pending_task_switch |= schedule;
+    if ((tick_count % quantum) == 0)
+    {
+        ctx_switch = __pending_task_switch;
+        __pending_task_switch = 0;
+    }
+    return ctx_switch;
 }
 
 /****************

@@ -1,34 +1,30 @@
 /*
- * Copyright (c) 2017 GreenWaves Technologies SAS
- * All rights reserved.
+ * Copyright 2019 GreenWaves Technologies, SAS
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of GreenWaves Technologies SAS nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
-#include "ImgIO.h"
-#include "Gap8.h"
+
+#include <stdio.h>
+
+/* PMSIS includes. */
+#include "pmsis.h"
+
+/* Autotiler includes. */
+#include "Gap.h"
+
+/* Gap_lib includes. */
+#include "gaplib/ImgIO.h"
 
 #define STACK_SIZE      2048
 #define MOUNT           1
@@ -52,15 +48,12 @@
 #endif
 
 
-RT_L2_DATA unsigned char *ImageIn_L2;
+PI_L2 unsigned char *ImageIn_L2;
 #else
 #include "Mills.h"
 #endif
-unsigned char RT_L2_DATA *ImageOut_L2;
+unsigned char PI_L2 *ImageOut_L2;
 
-/* Dma copy direction */
-#define COPY_IN 1
-#define COPY_OUT 0
 
 typedef struct ArgImage {
     unsigned char *In;
@@ -79,26 +72,26 @@ typedef unsigned char MagnitudeT;
 typedef unsigned char OrientationT;
 
 // A big buffer for the cluster usage
-static unsigned char  * RT_L1_GLOBAL_DATA WorkingArea = NULL;
+static unsigned char  * PI_L1 WorkingArea = NULL;
 
 // Some pointers used for "WorkingArea" buffer.
-static unsigned char  * RT_L1_GLOBAL_DATA InImage;
-static unsigned char  * RT_L1_GLOBAL_DATA OutImage;
-static MagnitudeT     * RT_L1_GLOBAL_DATA GradientBuffer;
-static unsigned char  * RT_L1_GLOBAL_DATA OrientBuffer;
+static unsigned char  * PI_L1 InImage;
+static unsigned char  * PI_L1 OutImage;
+static MagnitudeT     * PI_L1 GradientBuffer;
+static unsigned char  * PI_L1 OrientBuffer;
 
 // Pointer for storing the address of input and output images
-static unsigned char  * RT_L1_GLOBAL_DATA ImgInL2;
-static unsigned char  * RT_L1_GLOBAL_DATA ImgOutL2;
+static unsigned char  * PI_L1 ImgInL2;
+static unsigned char  * PI_L1 ImgOutL2;
 
 
-int  RT_L1_GLOBAL_DATA OrientOffset[10];
-int  RT_L1_GLOBAL_DATA BlobOffset[8];
+int  PI_L1 OrientOffset[10];
+int  PI_L1 BlobOffset[8];
 
-unsigned int RT_L2_DATA Performance[4];
+unsigned int PI_L2 Performance[4];
 unsigned char index_perf = 0;
 
-unsigned int RT_L1_GLOBAL_DATA Elapsed[10];
+unsigned int PI_L1 Elapsed[10];
 
 // This global variable controls the number of cores used:
 // 1 - execute with 1, 2, 4, 8 cores
@@ -106,7 +99,6 @@ unsigned int RT_L1_GLOBAL_DATA Elapsed[10];
 static int CoreCountDynamic = 0;
 static int ActiveCore;
 int finished = 0;
-static rt_perf_t *cluster_perf;
 
 static inline unsigned int ChunkSize(unsigned int X)
 
@@ -115,8 +107,8 @@ static inline unsigned int ChunkSize(unsigned int X)
     unsigned int Log2Core;
     unsigned int Chunk;
 
-    if (CoreCountDynamic) NCore = ActiveCore; else NCore = rt_nb_pe();
-    Log2Core = gap8_fl1(NCore);
+    if (CoreCountDynamic) NCore = ActiveCore; else NCore = gap_ncore();
+    Log2Core = gap_fl1(NCore);
     Chunk = (X>>Log2Core) + ((X&(NCore-1))!=0);
     return Chunk;
 }
@@ -138,18 +130,18 @@ void __attribute__ ((noinline)) RGBConvert(struct ArgImage *Arg)
     int CoreId;
     unsigned int First, Last, Chunk;
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
 
     Chunk = ChunkSize(Line*Col);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, Line*Col);
 
     for (i=First; i<Last; i+=2) {
         rgb = *((v4u *) &In[3*i]);
-        Out[i] = gap8_roundnormu(gap8_dotpu4(rgb, Coeff), Scale);
+        Out[i] = gap_roundnormu(gap_dotpu4(rgb, Coeff), Scale);
         rgb = *((v4u *) &In[3*(i+1)]);
-        Out[i+1] = gap8_roundnormu(gap8_dotpu4(rgb, Coeff), Scale);
+        Out[i+1] = gap_roundnormu(gap_dotpu4(rgb, Coeff), Scale);
     }
-    rt_team_barrier();
+    pi_cl_team_barrier();
 #undef cR_7
 #undef cG_7
 #undef cB_7
@@ -160,10 +152,9 @@ void MasterRGBConvert(unsigned int W, unsigned int H)
 {
     static int Debug = 1;
     static int FullReport = 0;
-    rt_dma_copy_t dmaCpIn, dmaCpOut;
+    pi_cl_dma_cmd_t dmaCpIn, dmaCpOut;
     unsigned int First, Last, IterCount, Toggle, Time;
     unsigned int h, i;
-    rt_perf_t *perf = cluster_perf;
 
     InImage 	  = WorkingArea;
     First = 0;
@@ -173,41 +164,41 @@ void MasterRGBConvert(unsigned int W, unsigned int H)
     Last = h;
     IterCount = H/h;
 
-    rt_perf_reset(perf);
-    rt_perf_start(perf);
-    Time = rt_perf_read(RT_PERF_CYCLES);
-    rt_dma_memcpy((unsigned int) ImgInL2, (unsigned int) InImage, 3*W*h, RT_DMA_DIR_EXT2LOC, 0, &dmaCpIn);
+    pi_perf_reset();
+    pi_perf_start();
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
+    pi_cl_dma_cmd((unsigned int) ImgInL2, (unsigned int) InImage, 3*W*h, PI_CL_DMA_DIR_EXT2LOC, &dmaCpIn);
     ArgC.W = W;
     Toggle = 0;
-    rt_dma_wait(&dmaCpIn);
+    pi_cl_dma_cmd_wait(&dmaCpIn);
 
     for (i=0; i<=IterCount; i++) {
         unsigned int NextFirst = Last, NextLast = Min(Last+h, H);
 
         // If not the last iteration move to next strip of input image
         if (i!=IterCount) {
-            rt_dma_memcpy((unsigned int) (ImgInL2 + NextFirst*3*W), (unsigned int) (InImage+((~Toggle)&h)*3*W),
-                    3*W*(NextLast-NextFirst), RT_DMA_DIR_EXT2LOC, 0, &dmaCpIn);
+            pi_cl_dma_cmd((unsigned int) (ImgInL2 + NextFirst*3*W), (unsigned int) (InImage+((~Toggle)&h)*3*W),
+                    3*W*(NextLast-NextFirst), PI_CL_DMA_DIR_EXT2LOC, &dmaCpIn);
         }
         ArgC.In = InImage + (Toggle&h)*3*W; ArgC.Out = OutImage + (Toggle&h)*W; ArgC.H = Last-First;
-        rt_team_fork(ActiveCore, (void *) RGBConvert, (void *) &ArgC);
+        pi_cl_team_fork(ActiveCore, (void *) RGBConvert, (void *) &ArgC);
 
         // If not the first iteration wait for previous copy to L2 to finish
-        if (i!=0) rt_dma_wait(&dmaCpOut);
+        if (i!=0) pi_cl_dma_cmd_wait(&dmaCpOut);
         // Move produced output to current strip of output image
-        rt_dma_memcpy((unsigned int) (ImgOutL2 + First*W), (unsigned int) (OutImage+((Toggle)&h)*W),
-                W*(Last-First), RT_DMA_DIR_LOC2EXT, 0, &dmaCpOut);
+        pi_cl_dma_cmd((unsigned int) (ImgOutL2 + First*W), (unsigned int) (OutImage+((Toggle)&h)*W),
+                W*(Last-First), PI_CL_DMA_DIR_LOC2EXT, &dmaCpOut);
 
         First = NextFirst; Last = NextLast;
         Toggle = ~Toggle;
 
         // If not last iteration wait for copy from L2 to finish
-        if (i!=IterCount) rt_dma_wait(&dmaCpIn);
+        if (i!=IterCount) pi_cl_dma_cmd_wait(&dmaCpIn);
     }
     // Wait for last copy to L2 to finish, if we iterated at least one time
-    rt_dma_wait(&dmaCpOut);
-    Time = rt_perf_read(RT_PERF_CYCLES)-Time;
-    rt_perf_stop(perf);
+    pi_cl_dma_cmd_wait(&dmaCpOut);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
+    pi_perf_stop();
     printf("RGB to BW Total with Master           : %10d Cycles\n", Time);
 }
 
@@ -243,7 +234,7 @@ void  __attribute__ ((noinline)) EdgeIntensityAndOrientation_Vectorial(
 
     if (H<=0 || W<=0) return;
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
     Chunk = ChunkSize(W-2);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, (W-2));
 
@@ -266,12 +257,12 @@ void  __attribute__ ((noinline)) EdgeIntensityAndOrientation_Vectorial(
 
             V0 = V1; V1 = V2;
             V2 = *VectIn; VectIn += (W>>2);
-            S  = gap8_dotpus4    (V0, C0);
-            S  = gap8_sumdotpus4 (V2, C1, S);
+            S  = gap_dotpus4    (V0, C0);
+            S  = gap_sumdotpus4 (V2, C1, S);
             Vy = S;
-            S  = gap8_dotpus4    (V0, C2);
-            S  = gap8_sumdotpus4 (V1, C3, S);
-            S  = gap8_sumdotpus4 (V2, C4, S);
+            S  = gap_dotpus4    (V0, C2);
+            S  = gap_sumdotpus4 (V1, C3, S);
+            S  = gap_sumdotpus4 (V2, C4, S);
             Vx = S;
             AbsVx = Abs(Vx); AbsVy = Abs(Vy);
             if (sizeof(MagnitudeT)==1) M =  (AbsVx+AbsVy)>>3;
@@ -310,7 +301,7 @@ void  __attribute__ ((noinline)) Conv5x5_Byte_Vectorial(unsigned char * __restri
     if (H<=4 || W<=4) return;
     /* Assumption: W%4==0 for proper vectorial behavior, if not image should be padded */
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
     Chunk = ChunkSize(W-4);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, W-4);
 
@@ -340,10 +331,10 @@ void  __attribute__ ((noinline)) Conv5x5_Byte_Vectorial(unsigned char * __restri
              * Because the last filter C6 = {2, 0, 0, 0}, the 3 last elements
              * of V6 would not be counted into the result.
              */
-            S = gap8_dotpus4   (V0, C0);
-            S = gap8_sumdotpus4(V1, C1, S); S = gap8_sumdotpus4(V2, C2, S);
-            S = gap8_sumdotpus4(V3, C3, S); S = gap8_sumdotpus4(V4, C4, S);
-            S = gap8_sumdotpus4(V5, C5, S); S = gap8_sumdotpus4(V6, C6, S);
+            S = gap_dotpus4   (V0, C0);
+            S = gap_sumdotpus4(V1, C1, S); S = gap_sumdotpus4(V2, C2, S);
+            S = gap_sumdotpus4(V3, C3, S); S = gap_sumdotpus4(V4, C4, S);
+            S = gap_sumdotpus4(V5, C5, S); S = gap_sumdotpus4(V6, C6, S);
             *O = (S*NormFactor)>>15;
             O+=W;
         }
@@ -358,7 +349,7 @@ void __attribute__ ((noinline)) CannyRemoveNonMax(MagnitudeT * __restrict__ In, 
     int CoreId;
     unsigned int First, Last, Chunk;
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
     Chunk = ChunkSize(W-2);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, (W-2));
     for (i=First+1; i<(Last+1); i++) {
@@ -385,7 +376,7 @@ void __attribute__ ((noinline)) CannyRemoveWeakEdges(unsigned char *In, unsigned
 
     if (H<=0 || W<=0) return;
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
     VectSize = (H*W)>>2;
     Chunk = ChunkSize(VectSize);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, VectSize);
@@ -408,7 +399,7 @@ void __attribute__ ((noinline)) CannyBlobAnalysis(unsigned char * __restrict__ I
     int CoreId;
     unsigned int First, Last, Chunk;
 
-    CoreId = gap8_coreid();
+    CoreId = gap_coreid();
     Chunk = ChunkSize(W-2);
     First =  CoreId*Chunk; Last = First+Chunk; Last = Min(Last, (W-2));
 
@@ -438,7 +429,7 @@ void __attribute__ ((noinline)) CannyDetector(struct ArgImage *Arg)
     unsigned char  *Orient   = OrientBuffer;
     unsigned int Time;
 
-    if (Debug) printf("Starting worker Canny workers on core %d\n", gap8_coreid());
+    if (Debug) printf("Starting worker Canny workers on core %d\n", gap_coreid());
 
     /* Gaussian fiter with Sigma = approx 1.4 */
     v4s KerGaussOpt[] =
@@ -464,38 +455,38 @@ void __attribute__ ((noinline)) CannyDetector(struct ArgImage *Arg)
         {-1,  0,  1, 0},
     };
 
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     // Filter the slice of image with a Gaussian 5*5 filter.
     // result = (Filter * Image) / 159
     Conv5x5_Byte_Vectorial((unsigned char *) In, (unsigned char *) ImageOut, W, H, (v4s *) KerGaussOpt, GaussNormFactor);
-    rt_team_barrier();
-    Elapsed[0] += rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_team_barrier();
+    Elapsed[0] += pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     // Find the intensity gradient of the image
     // Here we use a Sobel operator for finding the Gx and Gy
     EdgeIntensityAndOrientation_Vectorial((unsigned char *) ImageOut, (MagnitudeT *) Gradient,
             (unsigned char *) Orient, (v4s * __restrict__) Kernels_Sobel, W, H);
-    rt_team_barrier();
-    Elapsed[1] += rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_team_barrier();
+    Elapsed[1] += pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     // Apply non-maximum suppression to get rid of spurious response to edge detection
     CannyRemoveNonMax((MagnitudeT *) Gradient, (unsigned char *) Orient, (unsigned char *) ImageOut, W, H, OrientOffset);
-    rt_team_barrier();
-    Elapsed[2] += rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_team_barrier();
+    Elapsed[2] += pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     // Apply Blob analysis
     CannyBlobAnalysis((unsigned char *) ImageOut, (unsigned char *) Orient, W, H, OrientOffset+5);
-    rt_team_barrier();
-    Elapsed[3] += rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_team_barrier();
+    Elapsed[3] += pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     // Finalize the detection of edges by suppressing all the other edges that are weak and not connected to strong edges.
     CannyRemoveWeakEdges((unsigned char *) ImageOut, W, H);
-    rt_team_barrier();
-    Elapsed[4] += rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_team_barrier();
+    Elapsed[4] += pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
 }
 
@@ -537,10 +528,9 @@ void MasterCannyDetector(unsigned int W, unsigned int H)
 {
     static int Debug = 1;
     static int FullReport = 1;
-    rt_dma_copy_t dmaCpIn, dmaCpOut;
+    pi_cl_dma_cmd_t dmaCpIn, dmaCpOut;
     unsigned int First, Last, IterCount, Toggle, Time;
     unsigned int h, i;
-    rt_perf_t *perf = cluster_perf;
     /*
        Tile overlapping: 4
 
@@ -556,7 +546,7 @@ NonMax:				        ->	1
        Maximum height of the tile we can process allocating memory from WorkingArea for:
        in and out as double buffer
        gradient and gradient orientation as simple buffers
-       */
+    */
     h = ALLOCATED_MEM/((2*sizeof(PixelT) + 2*sizeof(PixelT) + sizeof(MagnitudeT) + sizeof(OrientationT))*W);
     h = Min(h, H);
 
@@ -573,47 +563,47 @@ NonMax:				        ->	1
         printf("Entering Master, W=%d, H=%d, %d iterations, read stripes: %d lines, wrote stripe: %d lines\n", W, H, IterCount, h, h-2*K);
     }
 
-    rt_perf_reset(perf);
-    rt_perf_start(perf);
-    Time = rt_perf_read(RT_PERF_CYCLES);
+    pi_perf_reset();
+    pi_perf_start();
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES);
     /* Feed in fresh in data from L2, we have to wait for completion of the copy before we can start processing */
-    rt_dma_memcpy((unsigned int) ImgInL2, (unsigned int) InImage, W*h, RT_DMA_DIR_EXT2LOC, 0, &dmaCpIn);
+    pi_cl_dma_cmd((unsigned int) ImgInL2, (unsigned int) InImage, W*h, PI_CL_DMA_DIR_EXT2LOC, &dmaCpIn);
     ArgC.W = W;
     Toggle = 0;
     IterCount = H/(h-2*K)-1;
-    rt_dma_wait(&dmaCpIn);
+    pi_cl_dma_cmd_wait(&dmaCpIn);
 
     for (i=0; i<=IterCount; i++) {
         unsigned int NextFirst = Last - 2*K, NextLast = Min(Last+(h-2*K), H);
 
         /* If not last iteration move in next strip of in image, Toggle control in which part of the double buffer we are */
         if (i!=IterCount) {
-            rt_dma_memcpy((unsigned int) (ImgInL2 + NextFirst*W),
+            pi_cl_dma_cmd((unsigned int) (ImgInL2 + NextFirst*W),
                     (unsigned int) (InImage+((~Toggle)&h)*W),
-                    W*(NextLast-NextFirst), RT_DMA_DIR_EXT2LOC, 0, &dmaCpIn);
+                    W*(NextLast-NextFirst), PI_CL_DMA_DIR_EXT2LOC, &dmaCpIn);
         }
 
         ArgC.In = InImage + (Toggle&h)*W; ArgC.Out = OutImage + (Toggle&h)*W; ArgC.H = Last-First;
         /* Enqueue CannyDetector in the HW dispatcher, core 1 to 7 are idle on wait for dispatch */
-        rt_team_fork(ActiveCore, (void *) CannyDetector, (void *) &ArgC);
+        pi_cl_team_fork(ActiveCore, (void *) CannyDetector, (void *) &ArgC);
 
         /* If not first iteration */
-        if (i!=0) rt_dma_wait(&dmaCpOut);
+        if (i!=0) pi_cl_dma_cmd_wait(&dmaCpOut);
         /* Move produced output to current strip of out image, Toogle controls which part of the double buffer */
-        rt_dma_memcpy((unsigned int) (ImgOutL2 + (First+K)*W),
+        pi_cl_dma_cmd((unsigned int) (ImgOutL2 + (First+K)*W),
                 (unsigned int) (OutImage+(((Toggle)&h)+K)*W),
-                W*(Last-First-2*K), RT_DMA_DIR_LOC2EXT, 0, &dmaCpOut);
+                W*(Last-First-2*K), PI_CL_DMA_DIR_LOC2EXT, &dmaCpOut);
 
         First = NextFirst; Last = NextLast;
         Toggle = ~Toggle;
 
         /* If not last iteration wait for copy in, initiated at the beginning of this iter, of the other part of input double buffer */
-        if (i!=IterCount) rt_dma_wait(&dmaCpIn);
+        if (i!=IterCount) pi_cl_dma_cmd_wait(&dmaCpIn);
     }
     /* Wait for last copy out */
-    rt_dma_wait(&dmaCpOut);
-    rt_perf_stop(perf);
-    Time = rt_perf_read(RT_PERF_CYCLES)-Time;
+    pi_cl_dma_cmd_wait(&dmaCpOut);
+    pi_perf_stop();
+    Time = pi_perf_read(PI_PERF_ACTIVE_CYCLES)-Time;
 
     if (FullReport) {
         printf("Conv5x5_Byte_Vectorial                : %10d Cycles\n", Elapsed[0]);
@@ -632,12 +622,10 @@ static void cluster_main()
 {
     printf ("cluster master start\n");
     int W=COL, H=LINE;
-    rt_perf_t *perf = cluster_perf;
-    // initialize the performance clock
-    rt_perf_init(perf);
+    
     // Configure performance counters for counting the cycles
-    rt_perf_conf(perf, (1<<RT_PERF_CYCLES));
-
+    pi_perf_conf(1 << PI_PERF_ACTIVE_CYCLES);
+    
     if (CoreCountDynamic) {
         /* Here the canny edge would be executed on 1, 2, 4 and 8 cores*/
         int i;
@@ -655,8 +643,8 @@ static void cluster_main()
         }
     } else {
         /* Here the canny edge would be executed only on all the cores of cluster*/
-        printf("Canny Edge Detector running on %d cores, Source %s image[W=%d, H=%d]\n", rt_nb_pe(), ISRGB?"RGB":"Mono", W, H);
-        ActiveCore = rt_nb_pe();
+        printf("Canny Edge Detector running on %d cores, Source %s image[W=%d, H=%d]\n", gap_ncore(), ISRGB?"RGB":"Mono", W, H);
+        ActiveCore = gap_ncore();
         if (ISRGB) {
             MasterRGBConvert(W, H);
         }
@@ -665,75 +653,75 @@ static void cluster_main()
         MasterCannyDetector(W, H);
     }
     // Stop the clock for performance usage.
-    rt_perf_stop(perf);
+    pi_perf_stop();
 }
 
-int main(int argc, char *argv[])
-
+void canny_edge_detector()
 {
     printf ("Start of application\n");
-    if (rt_event_alloc(NULL, 8)) return -1;
-
-    printf("bridge connecting\n");
-    rt_bridge_connect(1, NULL);
-    printf("Bridge connected, waiting for load image\n");
 
 #if FROM_FILE
 
 	char *Imagefile = "Pedestrian.pgm";
 	char imageName[64];
 	sprintf(imageName, "../../../%s", Imagefile);
-	ImageIn_L2 = (unsigned char *) rt_alloc( RT_ALLOC_L2_CL_DATA, COL*LINE*sizeof(unsigned char));
+	ImageIn_L2 = (unsigned char *) pi_l2_malloc( COL*LINE*sizeof(unsigned char));
 
-    unsigned int Wi, Hi;
-
-    if ( (ReadImageFromFile(imageName, &Wi, &Hi, ImageIn_L2, LINE*COL*sizeof(unsigned char))==0) || (Wi!=COL) || (Hi!=LINE))
+    if (ReadImageFromFile(imageName, COL,LINE, 1, ImageIn_L2, LINE*COL*sizeof(unsigned char), 0, 0))
     {
-        printf("Failed to load image %s or dimension mismatch Expects [%dx%d], Got [%dx%d]\n", imageName, COL, LINE, Wi, Hi);
-        return 1;
+        printf("Failed to load image %s\n", imageName);
+        pmsis_exit(-1);
     }
 
 #endif
 
     // Activate the Cluster
-    rt_cluster_mount(MOUNT, CID, 0, NULL);
-
-    // Allocate the memory of L2 for the performance structure
-    cluster_perf = rt_alloc(RT_ALLOC_L2_CL_DATA, sizeof(rt_perf_t));
-    if (cluster_perf == NULL) {
-        printf("alloc perf clock failed");
-        return -1;
-    }
-
-    // Allocate some stacks for cluster in L1, rt_nb_pe returns how many cores exist.
-    void *stacks = rt_alloc(RT_ALLOC_CL_DATA, STACK_SIZE*rt_nb_pe());
-    if (stacks == NULL){
-        printf("alloc stack clock failed");
-        return -1;
+    struct pi_device cluster_dev;
+    struct pi_cluster_conf cl_conf;
+    cl_conf.id = 0;
+    pi_open_from_conf(&cluster_dev, (void *) &cl_conf);
+    if (pi_cluster_open(&cluster_dev))
+    {
+        printf("Cluster open failed !\n");
+        pmsis_exit(-1);
     }
 
     // Allocate a big buffer in L1 for the algorithm usage.
-    WorkingArea 	  = rt_alloc(RT_ALLOC_CL_DATA, ALLOCATED_MEM) ;
+    WorkingArea 	  = pi_l1_malloc(0, ALLOCATED_MEM) ;
     if(WorkingArea == NULL) {
         printf("WorkingArea alloc error\n");
-        return -1;
+        pmsis_exit(-1);
     }
 
     // Allocate the buffer for the output image.
-    ImageOut_L2 = rt_alloc(RT_ALLOC_L2_CL_DATA,(LINE*COL));
+    ImageOut_L2 = pi_l2_malloc((LINE*COL));
 
-    // Execute the function "cluster_main" on the Core 0 of cluster.
-    rt_cluster_call(NULL, CID, cluster_main, NULL, stacks, STACK_SIZE, STACK_SIZE, rt_nb_pe(), NULL);
+    printf ("Call cluster\n");
+    struct pi_cluster_task *task = pmsis_l2_malloc(sizeof(struct pi_cluster_task));
+    memset(task, 0, sizeof(struct pi_cluster_task));
+    task->entry = cluster_main;
+    task->arg = (void *) NULL;
+    task->stack_size = (uint32_t) STACK_SIZE;
+
+    //Synchronous call to Cluster, Execution will start only on PE0
+    pi_cluster_send_task_to_cl(&cluster_dev, task);
 
     char imgName[50];
     sprintf(imgName, "../../../img_OUT.ppm");
     printf("imgName: %s\n", imgName);
-    WriteImageToFile(imgName, COL, LINE, (ImageOut_L2));
+    WriteImageToFile(imgName, COL, LINE, 1, (ImageOut_L2), sizeof(unsigned char));
+
+    pi_cluster_close(&cluster_dev);
+    
+    pmsis_exit(0);
+ 
+ }
 
 
-    // Close the cluster
-    rt_cluster_mount(UNMOUNT, CID, 0, NULL);
-    return 0;
+int main(int argc, char *argv[])
+{
+    printf("\n\n\t *** Canny Edge Detector ***\n\n");
+    return pmsis_kickoff((void *) canny_edge_detector);
 }
 
 

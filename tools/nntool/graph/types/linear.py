@@ -1,26 +1,30 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 
 from ..dim import Dim
-from .base import FilterParameters, SingleInputAndOutput
+from .base import MultiplicativeBiasParameters, SingleInputAndOutput
 
 LOG = logging.getLogger("nntool." + __name__)
 
-class FcParameters(FilterParameters, SingleInputAndOutput):
+class FcParameters(MultiplicativeBiasParameters, SingleInputAndOutput):
     op_name = "linear"
-    def __init__(self, name, filt, has_bias=False, sz_order=None,
-                 in_dims_hint=None, out_dims_hint=None):
+    def __init__(self, *args, **kwargs):
 
-        self.in_dims_hint = in_dims_hint
-        self.out_dims_hint = out_dims_hint
-
-        super(FcParameters, self).__init__(name, filt=filt, has_bias=has_bias)
-        self.sz_order = sz_order
+        super(FcParameters, self).__init__(*args, **kwargs)
         LOG.debug("created LINEAR %s", str(self))
 
     def get_parameter_size(self):
@@ -46,8 +50,11 @@ class FcParameters(FilterParameters, SingleInputAndOutput):
     def can_equalize(self):
         return True
 
-    def clone(self, groupn=None):
-        return FcParameters(self.filter.clone(), self.has_bias)
+    def clone(self, name, groupn=None):
+        return FcParameters(name, filt=self.filter.clone(), has_bias=self.has_bias)
+
+    def compute_load(self):
+        return self.in_dims[0].size() * self.out_dims[0].c
 
     def __str__(self):
-        return "F {}".format(self.filter)
+        return "F {} {}".format(self.filter, self.at_options or "")

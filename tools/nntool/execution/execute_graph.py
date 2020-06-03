@@ -1,15 +1,26 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 from typing import Optional, Sequence, Set, Mapping
 
+import numpy as np
+
 from utils.graph import Node
 from utils.node_id import NodeId
-from graph.types import FusionParameters, InputParameters
+from graph.types import ConvFusionParameters, InputParameters, ConstantInputParameters
 from quantization.quantization_record import QuantizationRecord
 
 from .executer import Executer
@@ -75,6 +86,57 @@ class ExecutionProgress(object):
         inst = cls()
         inst.listeners.remove(func)
 
+# pylint: disable=too-many-locals
+def execute_qnoq_iterator(G,
+                          in_tensors,
+                          qrecs: Mapping[NodeId, QuantizationRecord]):
+
+    LOG.info("execute quantization comparison")
+    ExecutionProgress.start()
+    saved_outputs = {}
+    for step_idx, step in enumerate(G.graph_state.steps):
+
+        node = step['node']
+
+        ExecutionProgress.progress(step_idx, node.name)
+
+        output = __collect_outputs(saved_outputs, node, G)
+        nid = NodeId(node, None)
+        qrec = qrecs[nid]
+
+        if isinstance(node, ConvFusionParameters):
+            for fusion_node in node.contained_nodes():
+                fnid = NodeId(node, fusion_node)
+                fqrec = qrecs[fnid]
+
+                qoutput = []
+                for val_idx, val in enumerate(output):
+                    qoutput.append(fqrec.in_qs[val_idx].quantize(val))
+
+                output, details = Executer.execute(fusion_node, output)
+                qoutput, qdetails = Executer.execute(fusion_node, qoutput, qrec=fqrec)
+                qoutput = [fqrec.out_qs[i].dequantize(out) for i, out in enumerate(qoutput)]
+
+                yield step_idx, node, output, details, qoutput, qdetails, fusion_node
+        else:
+            if isinstance(node, (InputParameters, ConstantInputParameters)):
+                output, details = Executer.execute(node, in_tensors)
+                qoutput, qdetails = Executer.execute(node, in_tensors, qrec=qrec)
+            else:
+                qoutput = []
+                for val_idx, val in enumerate(output):
+                    qoutput.append(qrec.in_qs[val_idx].quantize(val))
+                output, details = Executer.execute(node, output)
+                qoutput, qdetails = Executer.execute(node, qoutput, qrec=qrec)
+
+            qoutput = [qrec.out_qs[i].dequantize(out) for i, out in enumerate(qoutput)]
+
+        yield step_idx, node, output, details, qoutput, qdetails, None
+        __save_output(saved_outputs, node, output)
+
+    ExecutionProgress.end()
+
+
 def execute_triangle_iterator(G,
                               in_tensors: Sequence,
                               qrecs,
@@ -120,7 +182,7 @@ def execute_triangle_iterator(G,
         for inp in inputs:
             ExecutionProgress.progress(step_idx, node.name)
 
-            if isinstance(node, FusionParameters):
+            if isinstance(node, ConvFusionParameters):
                 for fusion_node in node.contained_nodes():
                     fqrec = qrecs[NodeId(node, fusion_node)]
                     outputs.append(Executer.execute(fusion_node, inp, qrec=fqrec))
@@ -161,7 +223,7 @@ def execute_cached_comparison_iterator(G,
         output = __collect_outputs(saved_outputs, node, G)
 
         ExecutionProgress.progress(step_idx, node.name)
-        if isinstance(node, FusionParameters):
+        if isinstance(node, ConvFusionParameters):
             fusion_outputs = cache_entry[step_idx]
             for idx, fusion_node in enumerate(node.contained_nodes()):
                 qoutput = []
@@ -224,7 +286,7 @@ def execute_cached_iterator(G,
 
         if has_quantized:
             ExecutionProgress.progress(step_idx, node.name)
-            if isinstance(node, FusionParameters):
+            if isinstance(node, ConvFusionParameters):
                 for fusion_node in node.contained_nodes():
                     fqrec = None if not qrec else qrecs[NodeId(node, fusion_node)]
                     output, details = Executer.execute(fusion_node, output, qrec=fqrec)
@@ -233,7 +295,7 @@ def execute_cached_iterator(G,
                 output, details = Executer.execute(node, output, qrec=qrec)
         else:
             ExecutionProgress.progress(step_idx, node.name, is_cached=True)
-            if isinstance(node, FusionParameters):
+            if isinstance(node, ConvFusionParameters):
                 fusion_outputs = cache_entry[step_idx]
                 for fusion_idx, fusion_node in enumerate(node.contained_nodes()):
                     output = fusion_outputs[fusion_idx]
@@ -251,13 +313,47 @@ def execute_cached_iterator(G,
         __save_output(saved_outputs, node, output)
     ExecutionProgress.end()
 
+def execute_uncached_step(G, in_tensors, step_idx, qrecs, qmode):
+    if qmode is None:
+        qmode = QuantizationMode.none()
+    ExecutionProgress.start()
+    node = G.graph_state.steps[step_idx]
+    assert not isinstance(node, InputParameters), "executing input step is not supported"
+    ExecutionProgress.progress(step_idx, node.name)
+
+    output = in_tensors
+    nid = NodeId(node, None)
+    if qmode.get_quantized(node, step_idx):
+        qrec = qrecs[nid]
+        if qmode.is_step:
+            __quantize_input(qrec, output)
+    else:
+        qrec = None
+
+    if isinstance(node, ConvFusionParameters):
+        for fusion_node in node.contained_nodes():
+            fnid = NodeId(node, fusion_node)
+            fqrec = None if not qrec else qrecs[fnid]
+            output, _ = Executer.execute(fusion_node, output, qrec=fqrec)
+    elif isinstance(node, InputParameters):
+        output, _ = Executer.execute(node, in_tensors, qrec=qrec)
+    else:
+        output, _ = Executer.execute(node, output, qrec=qrec)
+
+    if qmode.is_step and qmode.get_quantized(node, step_idx):
+        qrec = qrecs[NodeId(node, None)]
+        output = [qrec.out_qs[i].dequantize(out) for i, out in enumerate(output)]
+
+    return output
+
 # pylint: disable=too-many-locals
 def execute_uncached_iterator(G,
                               in_tensors,
                               limit=None,
                               qrecs: Mapping[NodeId, QuantizationRecord] = False,
                               qmode: QuantizationMode = None,
-                              start_node=None):
+                              start_node=None,
+                              record_inputs=None):
     if qmode is None:
         qmode = QuantizationMode.none()
     LOG.info("execute uncached: quantization mode %s", qmode)
@@ -278,17 +374,26 @@ def execute_uncached_iterator(G,
         output = __collect_outputs(saved_outputs, node, G)
 
         ExecutionProgress.progress(step_idx, node.name)
+        nid = NodeId(node, None)
+        if record_inputs is not None:
+            if output is None:
+                record_inputs[nid] = output
+            else:
+                record_inputs[nid] = [np.copy(out) for out in output]
 
         if qmode.get_quantized(node, step_idx):
-            qrec = qrecs[NodeId(node, None)]
+            qrec = qrecs[nid]
             if qmode.is_step and output:
                 __quantize_input(qrec, output)
         else:
             qrec = None
 
-        if isinstance(node, FusionParameters):
+        if isinstance(node, ConvFusionParameters):
             for fusion_node in node.contained_nodes():
-                fqrec = None if not qrec else qrecs[NodeId(node, fusion_node)]
+                fnid = NodeId(node, fusion_node)
+                fqrec = None if not qrec else qrecs[fnid]
+                if record_inputs is not None:
+                    record_inputs[nid] = [np.copy(out) for out in output]
                 output, details = Executer.execute(fusion_node, output, qrec=fqrec)
                 yield step_idx, step, node, output, fusion_node.op_name, fusion_node, details
         elif isinstance(node, InputParameters):
@@ -362,3 +467,79 @@ def execute(G,
             if all_details is not None:
                 all_details.append(details)
     return outputs
+
+# pylint: disable=too-many-arguments
+def execute_validation(G,
+                       in_tensors,
+                       limit=None,
+                       output_fn=None,
+                       qrecs: Mapping[NodeId, QuantizationRecord] = False,
+                       qmode: QuantizationMode = None,
+                       value_cache=None,
+                       dequantize=True,
+                       validation=False,
+                       all_details=None,
+                       silent=False):
+                       
+    if qmode is None:
+        qmode = QuantizationMode.none()
+    outputs = []
+    outputs.append(execute_iterator_validation(G, in_tensors, limit, qrecs,
+                         qmode, silent))
+    return outputs
+
+#import time
+# pylint: disable=too-many-locals
+def execute_iterator_validation(G,
+                                in_tensors,
+                                limit=None,
+                                qrecs: Mapping[NodeId, QuantizationRecord] = False,
+                                qmode: QuantizationMode = None,
+                                silent=False):
+    if qmode is None:
+        qmode = QuantizationMode.none()
+    if not silent:
+        LOG.info("execute uncached validation: quantization mode %s", qmode)
+    saved_outputs = {}
+    if not silent:
+        ExecutionProgress.start()
+    for step_idx, step in enumerate(G.graph_state.steps):
+
+        if limit is not None and step_idx > limit:
+            break
+
+        node = step['node']
+
+        # collect outputs from previous nodes
+        # InputNode is already set above
+        output = __collect_outputs(saved_outputs, node, G)
+
+        if not silent:  
+            ExecutionProgress.progress(step_idx, node.name)
+
+        nid = NodeId(node, None)
+
+        if qmode.get_quantized(node, step_idx):
+            qrec = qrecs[nid]
+            if qmode.is_step and output:
+                __quantize_input(qrec, output)
+        else:
+            qrec = None
+
+        if isinstance(node, ConvFusionParameters):
+            for fusion_node in node.contained_nodes():
+                fnid = NodeId(node, fusion_node)
+                fqrec = None if not qrec else qrecs[fnid]
+                output, details = Executer.execute(fusion_node, output, qrec=fqrec, detect_overflow=False)
+                #yield step_idx, step, node, output, fusion_node.op_name, fusion_node, details
+        elif isinstance(node, InputParameters):
+            output, details = Executer.execute(node, in_tensors, qrec=qrec, detect_overflow=False)
+        else:
+            output, details = Executer.execute(node, output, qrec=qrec, detect_overflow=False)
+
+        #yield step_idx, step, node, output, None, None, details
+
+        __save_output(saved_outputs, node, output)
+    if not silent:
+        ExecutionProgress.end()
+    return output

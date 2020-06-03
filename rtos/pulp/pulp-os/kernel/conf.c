@@ -20,7 +20,19 @@
 
 #include "rt/rt_api.h"
 
+#ifndef RT_FC_STACK_SIZE
+#define RT_FC_STACK_SIZE 0x800
+#endif
+
 __attribute__((weak)) unsigned int __rt_platform = 3;
+#ifndef __RT_IODEV__
 __attribute__((weak)) unsigned int __rt_iodev = 0;
+#else
+__attribute__((weak)) unsigned int __rt_iodev = __RT_IODEV__;
+#endif
 __attribute__((weak)) unsigned int __rt_iodev_uart_baudrate = 115200;
 __attribute__((weak)) unsigned int __rt_iodev_uart_channel = 0;
+
+__attribute__((weak)) unsigned int __rt_fc_stack_size = RT_FC_STACK_SIZE;
+
+__attribute__((aligned(8))) unsigned char __rt_fc_stack[RT_FC_STACK_SIZE];

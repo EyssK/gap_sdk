@@ -1,0 +1,5 @@
+adjust
+fusions --pow2
+aquant -s POW2 -f 16 images/* -F int16
+set graph_dump_tensor 7
+save_state

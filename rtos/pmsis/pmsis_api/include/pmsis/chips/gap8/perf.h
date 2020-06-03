@@ -35,6 +35,9 @@
 /**        
  * @defgroup GAP8_INFO GAP8 information
  *
+ * The closest memory for the FC is the FC TCDM and is referred in the API as
+ * the FC L1 memory.
+ *  
  * All functions transfering data between an external device and a chip memory
  * must use the L2 memory for the chip memory.
  *
@@ -43,6 +46,14 @@
  *
  * Up to 8 cluster DMA counters can be allocated at the same time. Trying to
  * allocate one more will stall the core.
+ *
+ * With the I2S driver, When using 2 RX channels on the same interface (left and
+ * right), the buffer contains the samples for both channels interleaved one by
+ * one.
+ * 
+ * I2S buffers size must be a most 64KB - 4.
+ * 
+ * PI_SPI_WORDSIZE_16 is not supported.
  */
 
 /**

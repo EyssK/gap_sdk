@@ -101,6 +101,7 @@ typedef void (*rt_error_callback_t)(void *arg, rt_event_t *event, int error, voi
 #define RT_BRIDGE_ENQUEUE_EVENT 4
 
 #define RT_DMA_EVENT 5
+#define RT_USER_EVENT 6
 
 #if defined(EU_VERSION) && (EU_VERSION == 1)
 #define RT_FORK_EVT 0
@@ -130,8 +131,9 @@ typedef void (*rt_error_callback_t)(void *arg, rt_event_t *event, int error, voi
 #define RT_L1_DATA RT_L1_GLOBAL_DATA
 #define L1_DATA RT_L1_DATA
 #define PI_L1 RT_L1_DATA
+#define PI_CL_L1 RT_L1_DATA
 
-#if (defined(ARCHI_HAS_FC_TCDM) || defined(ARCHI_HAS_L2_ALIAS)) && !defined(__LLVM__)
+#if (defined(ARCHI_HAS_FC_TCDM) || defined(ARCHI_HAS_L2_ALIAS)) && !defined(__LLVM__) && !defined(RV_ISA_RV32)
 #define RT_FC_TINY_DATA __attribute__((section(".data_tiny_fc"))) __attribute__ ((tiny))
 #else
 #define RT_FC_TINY_DATA __attribute__((section(".data_tiny_fc")))
@@ -148,6 +150,7 @@ typedef void (*rt_error_callback_t)(void *arg, rt_event_t *event, int error, voi
 #define RT_L2_RET_DATA __attribute__((section(".l2_data")))
 
 #define RT_FC_DATA RT_FC_GLOBAL_DATA
+#define PI_FC_L1 RT_FC_DATA
 
 #ifdef __RT_CLUSTER_START
 #define RT_LOCAL_DATA RT_L1_GLOBAL_DATA
@@ -287,6 +290,15 @@ typedef struct rt_periph_copy_s {
 } rt_periph_copy_t;
 
 
+struct pi_mem_slab {
+        uint32_t num_blocks;
+        size_t block_size;
+        char *buffer;
+        char *free_list;
+        uint32_t num_used;
+};
+
+
 struct pi_task_implem
 {
   struct pi_task *next;
@@ -323,6 +335,32 @@ typedef struct pi_task{
 } pi_task_t;
 
 #include "pmsis/pmsis_types.h"
+
+#ifndef IMPLEM_MUTEX_OBJECT_TYPE
+#define IMPLEM_MUTEX_OBJECT_TYPE \
+    void* mutex_object;
+#endif
+
+struct pi_mutex
+{
+  IMPLEM_MUTEX_OBJECT_TYPE
+  __pmsis_mutex_func take;
+  __pmsis_mutex_func give;
+};
+
+#ifndef IMPLEM_SEM_OBJECT_TYPE
+#define IMPLEM_SEM_OBJECT_TYPE \
+    void* sem_object;
+#endif
+
+struct pi_sem
+{
+  IMPLEM_SEM_OBJECT_TYPE
+  __pi_sem_func take;
+  __pi_sem_func give;
+};
+
+
 #include "pmsis/cluster/cl_pmsis_types.h"
 
 typedef struct pi_task rt_event_t;

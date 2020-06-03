@@ -1,10 +1,20 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import json
+import os
 
 import xxhash
 
@@ -12,7 +22,17 @@ import xxhash
 # This class tracks any changes to the graph that render it incompatible with a value cache entry
 class GraphIdentity():
     def __init__(self, filename):
+        if filename is not None:
+            filename = os.path.abspath(filename)
         self._identity = {'filename': filename, 'fusions': []}
+
+    @property
+    def extracted_step(self):
+        return self._identity.get('extracted_step')
+
+    @extracted_step.setter
+    def extracted_step(self, val):
+        self._identity['extracted_step'] = val
 
     @property
     def identity(self):
@@ -56,6 +76,22 @@ class GraphIdentity():
 
     def set_equalized(self, threshold):
         self._identity['equalization'] = threshold
+
+    @property
+    def tflite_quantization(self):
+        return self._identity.get('tflite_quantization')
+
+    @tflite_quantization.setter
+    def tflite_quantization(self, val: bool):
+        self._identity['tflite_quantization'] = val
+
+    @property
+    def quantization_type(self):
+        return self._identity.get('quantization_type')
+
+    @quantization_type.setter
+    def quantization_type(self, val: str):
+        self._identity['quantization_type'] = val
 
     @property
     def hexdigest(self):

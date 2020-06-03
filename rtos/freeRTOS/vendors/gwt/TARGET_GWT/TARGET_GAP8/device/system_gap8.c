@@ -32,7 +32,9 @@
 
 /* PMSIS includes. */
 #include "pmsis.h"
-#include "pmsis_driver/pmu/pmsis_pmu.h"
+#include "pmsis/implem/drivers/pmu/pmu.h"
+
+#include "../driver/semihost.h"
 
 /* FC & L2 heaps. */
 extern char __heapfcram_start;
@@ -44,11 +46,14 @@ volatile uint32_t SystemCoreClock = (uint32_t) DEFAULT_SYSTEM_CLOCK;
 
 void system_init(void)
 {
-    /* Deactivate all soc events as they are active by default */
+    /* Disable all IRQs first. */
+    NVIC->MASK_IRQ_AND = 0xFFFFFFFF;
+
+    /* Deactivate all soc events. */
     SOCEU->FC_MASK_MSB = 0xFFFFFFFF;
     SOCEU->FC_MASK_LSB = 0xFFFFFFFF;
 
-    /* FC Icache Enable*/
+    /* FLush FC Icache and then enable it. */
     SCBC->ICACHE_ENABLE = 0xFFFFFFFF;
 
     /* Setup FC_SOC events handler. */
@@ -61,8 +66,12 @@ void system_init(void)
     __enable_irq();
 
     /* Initialize malloc functions. */
-    pmsis_malloc_init((void*) &__heapfcram_start, (uint32_t) &__heapfcram_size,
-                      (void*) &__heapl2ram_start, (uint32_t) &__heapl2ram_size);
+    pi_malloc_init((void*) &__heapfcram_start, (uint32_t) &__heapfcram_size,
+                   (void*) &__heapl2ram_start, (uint32_t) &__heapl2ram_size);
+
+    #if defined(PRINTF_UART)
+    printf_uart_init(0);
+    #endif  /* PRINTF_UART */
 }
 
 void system_setup_systick(uint32_t tick_rate_hz)
@@ -88,24 +97,26 @@ void system_setup_systick(uint32_t tick_rate_hz)
 
 void system_core_clock_update(void)
 {
-    SystemCoreClock = pi_fll_get_frequency(FLL_SOC);
+    SystemCoreClock = pi_fll_get_frequency(FLL_SOC, 0);
 }
 
 uint32_t system_core_clock_get(void)
 {
+    system_core_clock_update();
     return SystemCoreClock;
-    //return pi_fll_get_frequency(FLL_SOC);
 }
 
 void system_exit(int32_t code)
 {
     if (pi_is_fc())
     {
-        /* Flush the pending messages to the debug tools
-           Notify debug tools about the termination */
-        BRIDGE_PrintfFlush();
-        DEBUG_Exit(DEBUG_GetDebugStruct(), code);
-        BRIDGE_SendNotif();
+        /* Flush pending output. */
+        system_exit_printf_flush();
+
+        #if !defined(__PLATFORM_GVSOC__)
+        /* Notify debug tools about the termination. */
+        semihost_exit(code == 0 ? SEMIHOST_EXIT_SUCCESS : SEMIHOST_EXIT_ERROR);
+        #endif  /* __PLATFORM_GVSOC__ */
 
         /* Write return value to APB device */
         soc_ctrl_corestatus_set(code);

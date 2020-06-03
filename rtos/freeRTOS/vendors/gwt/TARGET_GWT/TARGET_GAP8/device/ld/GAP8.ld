@@ -68,6 +68,11 @@ SECTIONS
         *(.text.reset)
         *(.text)
         *(.text.*)
+        . = ALIGN(4);
+        __cluster_text_start = .;
+        *(.cluster.text)
+        *(.cluster.text.*)
+        __cluster_text_end = .;
         _etext  =  .;
         *(.lit)
         *(.shdata)
@@ -136,13 +141,14 @@ SECTIONS
       PROVIDE_HIDDEN (__fini_array_end = .);
     } > L2
 
-
     .rodata : {
         /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
         . = ALIGN(4);
-        *(.rodata);
+        *(.rodata)
         *(.rodata.*)
-        . = ALIGN(4);
+        *(.srodata)
+        *(.srodata.*)
+        *(.eh_frame*)
     } > L2
 
     /* or1k-specific */
@@ -177,6 +183,9 @@ SECTIONS
         __data_start__ = .;      /* create a global symbol at data start */
         *(.data);
         *(.data.*)
+        . = ALIGN(4);
+        *(.sdata)
+        *(.sdata.*)
         KEEP(*(.jcr*))
         . = ALIGN(4);
         __data_end__ = .;        /* define a global symbol at data end */
@@ -197,8 +206,8 @@ SECTIONS
         . = ALIGN(4);
         __bss_end__ = .;
         __END_BSS = .;
-        __l1_preload_start_inL2 = .;
     } > L2
+    __l1_preload_start_inL2 = ALIGN(4);
 
     .l1FcTiny (ORIGIN(FC_tcdm)) : AT(ORIGIN(FC_tcdm))
     {
@@ -249,97 +258,56 @@ SECTIONS
 
     .heapfcram (ORIGIN(FC_tcdm) + SIZEOF(.fcTcdm_g) + SIZEOF(.fcTcdm) + SIZEOF(.fcTcdmTiny) + SIZEOF(.l1FcTiny) + __fc_bss_size__ ) : AT(ORIGIN(FC_tcdm) + SIZEOF(.fcTcdm_g) + SIZEOF(.fcTcdm) + SIZEOF(.fcTcdmTiny) + SIZEOF(.l1FcTiny) + __fc_bss_size__)
     {
-        . = ALIGN(4);
+        . = ALIGN(8);
         *(.heapfcram)
 
-        . = ALIGN(4);
+        . = ALIGN(8);
         __heapfcram_start = .;
     } > FC_tcdm
 
      __heapfcram_size = LENGTH(FC_tcdm) + ORIGIN(FC_tcdm) - __heapfcram_start;
 
-    .libgomp (ORIGIN(L1_sram) ): AT(__l1_preload_start_inL2)
+    .l1clusterTiny (ORIGIN(L1_sram)) :
     {
         /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
         . = ALIGN(4);
-        __l1_preload_start = .;
-        *(.libgomp)
-        *(.libgomp.*)
-        . = ALIGN(4);
-    } > L1_sram
-
-    .l1clusterTiny (ORIGIN(L1_sram)  + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny)) : AT(__l1_preload_start_inL2 + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny))
-    {
-        /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
-        . = ALIGN(4);
+        __l1_preload_start = . + 0x4;
         *(.l1clusterTiny)
         *(.l1clusterTiny.*)
-
         . = ALIGN(4);
-    } > L1_sram
+    } > L1_sram AT> L2
 
-    .tls (ORIGIN(L1_sram)  + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny)) : AT(__l1_preload_start_inL2 + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny))
+    .l1cluster_g (ORIGIN(L1_sram) + SIZEOF(.l1clusterTiny)) :
     {
         . = ALIGN(4);
-        __tls_start = .;
-        *(.tls)
-        *(.tls.*)
-        . = ALIGN(4);
-        __tls_end = .;
-    } > L1_sram
-
-    .heapsram (ORIGIN(L1_sram)  + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny) + SIZEOF(.tls) * 8) : AT(__l1_preload_start_inL2 + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny) + SIZEOF(.tls) * 8)
-    {
-        /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
-        . = ALIGN(4);
+        __printf_lock_ptr = . + 0x4;
+        . = __printf_lock_ptr + 0x4;
         *(.heapsram)
         *(.heapsram.*)
-        . = ALIGN(4);
-    } > L1_sram
-
-    .l1cluster_g (ORIGIN(L1_sram)  + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny) + SIZEOF(.tls) * 8 + SIZEOF(.heapsram)) : AT(__l1_preload_start_inL2 + SIZEOF(.libgomp) + SIZEOF(.l1FcTiny) + SIZEOF(.l1clusterTiny) + SIZEOF(.tls) * 8 + SIZEOF(.heapsram))
-    {
-        /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
         . = ALIGN(4);
         *(.l1cluster_g)
         *(.l1cluster_g.*)
         *(.data_l1)
         *(.data_l1.*)
         . = ALIGN(4);
+        *(.libgomp)
+        *(.libgomp.*)
+        . = ALIGN(8);
         __heapsram_start = .;
-    } > L1_sram
+    } > L1_sram AT> L2
 
-     __heapsram_size = LENGTH(L1_sram) + ORIGIN(L1_sram) - __heapsram_start - __L1_STACK_SIZE;
+     __heapsram_size = ORIGIN(L1_sram) + LENGTH(L1_sram) - __heapsram_start;
      __l1_preload_size = __heapsram_start - ORIGIN(L1_sram);
-
-     .stacks (ORIGIN(L1_sram) + LENGTH(L1_sram) - __L1_STACK_SIZE) : AT(ORIGIN(L1_sram) + LENGTH(L1_sram) - __L1_STACK_SIZE)
-     {
-       . = ALIGN(4);
-       stacks = . + __L1_STACK_SIZE;
-     } > L1_sram
-
 
     .heapl2ram (__l1_preload_start_inL2 + __l1_preload_size) :
     {
-        /* Due to limitations on FPGA loader, loadable sections must have base and size aligned on 4 bytes */
-
-        . = ALIGN(4);
+        . = ALIGN(8);
         *(.heapl2ram)
-
-        . = ALIGN(4);
+        *(.heapl2ram.*)
+        . = ALIGN(8);
         __heapl2ram_start = .;
     } > L2
 
     __heapl2ram_size = LENGTH(L2) + ORIGIN(L2) - __heapl2ram_start;
     __heapl2ram_limit = __heapl2ram_size + __heapl2ram_start;
-
-    .stab  0 (NOLOAD) :
-    {
-        [ .stab ]
-    }
-
-    .stabstr  0 (NOLOAD) :
-    {
-        [ .stabstr ]
-    }
 }

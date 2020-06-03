@@ -11,8 +11,8 @@
 #include "pmsis/cluster/cluster_sync/cl_to_fc_delegate.h"
 #include "pmsis/cluster/cluster_sync/cl_synchronisation.h"
 #include "pmsis/cluster/cluster_team/cl_team.h"
-#include "pmsis_hal/soc_eu/pmsis_soc_eu.h"
-#include "pmsis_hal/gap_eu/pmsis_eu.h"
+#include "pmsis_hal/pmsis_hal.h"
+//#include "pmsis_hal/gap_eu/pmsis_eu.h"
 #include "cores/TARGET_RISCV_32/core_utils.h"
 #include "cores/TARGET_RISCV_32/core_gap.h"
 
@@ -101,11 +101,10 @@ void cl_cluster_exec_loop(void)
     SCBC->ICACHE_ENABLE = 0xFFFFFFFF;
 
     /* Initialization for the task dispatch loop */
-    hal_eu_evt_mask_set((1 << EU_DISPATCH_EVENT)
-            | (1 << EU_MUTEX_EVENT)
-            | (1 << EU_HW_BARRIER_EVENT)
-            | (1 << EU_LOOP_EVENT));
-
+    hal_eu_evt_mask_set((1 << EU_DISPATCH_EVENT) |
+                        (1 << EU_MUTEX_EVENT) |
+                        (1 << EU_HW_BARRIER_EVENT) |
+                        (1 << EU_LOOP_EVENT));
 
     asm volatile ("add    s1,  x0,  %0" :: "r" (CORE_EU_DISPATCH_DEMUX_BASE));
     asm volatile ("add    s2,  x0,  %0" :: "r" (CORE_EU_BARRIER_DEMUX_BASE));
@@ -133,8 +132,8 @@ void cl_cluster_exec_loop(void)
         /*
          * Core 0 will wait for tasks from FC side
          */
-        NVIC_EnableIRQ(CL_EVENT_DMA1);
-        hal_eu_evt_mask_set(1 << CL_EVENT_DMA1);
+        /* Enable IRQ for DMA on Core 0. */
+        hal_eu_irq_mask_set(1 << CL_EVENT_DMA1);
         __enable_irq();
 
         asm volatile("add   s4,  x0,  %0\n\t"
@@ -360,7 +359,7 @@ int pi_cluster_close_async(struct pi_device *device, pi_task_t *async_task)
     return 0;
 }
 
-uint32_t pi_cluster_ioctl(struct pi_device *device, uint32_t func_id, void *arg)
+int pi_cluster_ioctl(struct pi_device *device, uint32_t func_id, void *arg)
 {
     struct pi_device_api *api = device->api;
     struct cluster_driver_api *cluster_api = api->specific_api;
@@ -395,7 +394,7 @@ uint32_t pi_cluster_ioctl(struct pi_device *device, uint32_t func_id, void *arg)
     return ret;
 }
 
-uint32_t pi_cluster_ioctl_async(struct pi_device *device, uint32_t func_id,
+int pi_cluster_ioctl_async(struct pi_device *device, uint32_t func_id,
         void *arg, pi_task_t *async_task)
 {
     struct pi_device_api *api = device->api;

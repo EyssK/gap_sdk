@@ -6,6 +6,14 @@
 
 APP = Bilinear_Resize
 
+#To test new bridge features:
+#comment the line above and use this two instead
+export GAP_USE_OPENOCD=1
+io=host
+
+#PMSIS_OS ?= freertos
+
+
 RESIZE_GEN_PATH = $(TILER_GENERATOR_PATH)/Resize
 RESIZE_KER_PATH = $(TILER_GENERATOR_PATH)/Resize
 
@@ -15,14 +23,14 @@ APP_SRCS += ResizeKernels.c $(RESIZE_KER_PATH)/ResizeBasicKernels.c
 APP_INC += . $(TILER_EMU_INC) $(TILER_INC) $(RESIZE_KER_PATH)
 
 APP_CFLAGS += -O3 -mno-memcpy -fno-tree-loop-distribute-patterns $(USER_FLAGS)
-APP_CFLAGS += -Wall -Werror -Wno-maybe-uninitialized -Wno-unused-but-set-variable
+APP_CFLAGS += -Wall -Werror -Wno-maybe-uninitialized -Wno-unused-but-set-variable -Wno-unused-variable
+APP_CFLAGS += -DOUT_FILE_PATH=\"$(CURDIR)/resized_out.ppm\"
+APP_CFLAGS += -DIN_FILE_PATH=\"$(CURDIR)/Pedestrian.ppm\"
 
 MODEL_SRC = ResizeModel.c
 MODEL_GEN = ResizeKernels
 MODEL_GEN_C = $(addsuffix .c, $(MODEL_GEN))
 MODEL_GEN_CLEAN = $(MODEL_GEN_C) $(addsuffix .h, $(MODEL_GEN))
-
-PLPBRIDGE_FLAGS = -fileIO 2
 
 RM=rm -f
 

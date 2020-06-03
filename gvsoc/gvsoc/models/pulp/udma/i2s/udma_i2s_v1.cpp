@@ -61,12 +61,43 @@ void I2s_periph_v1::reset(bool active)
 
 
 
-void I2s_periph_v1::handle_clkgen_tick(int clkgen, int channel)
+void I2s_periph_v1::handle_clkgen_tick(int clkgen)
 {
-  this->trace.msg("Clock edge (channel: %d, sck: %d)\n", channel, this->sck[clkgen]);
+  this->trace.msg("Clock edge (clkgen: %d, sck: %d, ws: %d)\n", clkgen, this->sck[clkgen], this->current_ws[clkgen]);
 
-  this->ch_itf[channel].sync(this->sck[clkgen], 1, 0);
+  if (this->r_chmode.ch0_mode_get() == clkgen)
+    this->ch_itf[0].sync(this->sck[clkgen], this->current_ws[clkgen], 0);
+
+  if (this->r_chmode.ch1_mode_get() == clkgen)
+    this->ch_itf[1].sync(this->sck[clkgen], this->current_ws[clkgen], 0);
+
   this->sck[clkgen] ^= 1;
+
+  if (this->sck[clkgen] == 0)
+  {
+    int bits_word = clkgen == 0 ? this->r_cfg_clkgen0.bits_word_get() : this->r_cfg_clkgen1.bits_word_get();
+
+    this->current_ws_count[clkgen]++;
+
+    if (this->current_ws_count[clkgen] >= bits_word + 1)
+    {
+      this->current_ws_count[clkgen] = 0;
+      this->current_ws[clkgen] ^= 1;
+
+      if (this->current_ws[clkgen] == 0)
+      {
+        if (this->r_chmode.ch0_mode_get() == clkgen)
+        {
+          (static_cast<I2s_rx_channel *>(this->channel0))->wait_ws_start = false;
+        }
+      
+        if (this->r_chmode.ch1_mode_get() == clkgen)
+        {
+          (static_cast<I2s_rx_channel *>(this->channel1))->wait_ws_start = false;
+        }
+      }
+    }
+  }
 
   if (clkgen == 0)
     this->check_clkgen0();
@@ -82,11 +113,7 @@ void I2s_periph_v1::clkgen_event_routine(void *__this, vp::clock_event *event)
 
   int clkgen = *(int *)&(event->get_args()[0]);
 
-  if (_this->r_chmode.ch0_mode_get() == clkgen)
-    _this->handle_clkgen_tick(clkgen, 0);
-
-  if (_this->r_chmode.ch1_mode_get() == clkgen)
-    _this->handle_clkgen_tick(clkgen, 1);
+  _this->handle_clkgen_tick(clkgen);
 }
 
 
@@ -97,6 +124,8 @@ vp::io_req_status_e I2s_periph_v1::reset_clkgen0()
     this->top->get_periph_clock()->cancel(this->clkgen0_event);
 
   this->sck[0] = 0;
+  this->current_ws_count[0] = 0;
+  this->current_ws[0] = 0;
   return vp::io_req_status_e::IO_REQ_OK;
 }
 
@@ -108,6 +137,8 @@ vp::io_req_status_e I2s_periph_v1::reset_clkgen1()
     this->top->get_periph_clock()->cancel(this->clkgen1_event);
 
   this->sck[1] = 0;
+  this->current_ws_count[1] = 0;
+  this->current_ws[1] = 0;
   return vp::io_req_status_e::IO_REQ_OK;
 }
 
@@ -154,7 +185,16 @@ vp::io_req_status_e I2s_periph_v1::cfg_clkgen0_req(int reg_offset, int size, boo
       this->r_cfg_clkgen0.bits_word_get(), this->r_cfg_clkgen0.clk_en_get(), this->r_cfg_clkgen0.clk_div_get()
     );
   
-  this->reset_clkgen0();
+  if (this->r_chmode.ch0_mode_get() == 0)
+  {
+    (static_cast<I2s_rx_channel *>(this->channel0))->wait_ws_start = true;
+  }
+
+  if (this->r_chmode.ch0_mode_get() == 0)
+  {
+    (static_cast<I2s_rx_channel *>(this->channel0))->wait_ws_start = true;
+  }
+
   this->check_clkgen0();
 
   return vp::io_req_status_e::IO_REQ_OK;
@@ -171,7 +211,16 @@ vp::io_req_status_e I2s_periph_v1::cfg_clkgen1_req(int reg_offset, int size, boo
       this->r_cfg_clkgen1.bits_word_get(), this->r_cfg_clkgen1.clk_en_get(), this->r_cfg_clkgen1.clk_div_get()
     );
   
-  this->reset_clkgen1();
+  if (this->r_chmode.ch1_mode_get() == 1)
+  {
+    (static_cast<I2s_rx_channel *>(this->channel0))->wait_ws_start = true;
+  }
+
+  if (this->r_chmode.ch1_mode_get() == 1)
+  {
+    (static_cast<I2s_rx_channel *>(this->channel0))->wait_ws_start = true;
+  }
+
   this->check_clkgen1();
 
   return vp::io_req_status_e::IO_REQ_OK;
@@ -288,7 +337,25 @@ void I2s_periph_v1::rx_sync(void *__this, int sck, int ws, int sd, int channel)
   if (channel == 0)
     (static_cast<I2s_rx_channel *>(_this->channel0))->handle_rx_bit(sck, ws, sd);
   else
+  {
     (static_cast<I2s_rx_channel *>(_this->channel1))->handle_rx_bit(sck, ws, sd);
+  }
+
+  int clkgen = channel == 0 ? _this->r_chmode.ch0_mode_get() : _this->r_chmode.ch1_mode_get();
+
+  if (_this->current_ws_count[clkgen] == 0)
+  {
+    if (channel == 0)
+    {
+      (static_cast<I2s_rx_channel *>(_this->channel0))->pending_bits[0] = 0;
+      (static_cast<I2s_rx_channel *>(_this->channel0))->pending_bits[1] = 0;
+    }
+    else
+    {
+      (static_cast<I2s_rx_channel *>(_this->channel1))->pending_bits[0] = 0;
+      (static_cast<I2s_rx_channel *>(_this->channel1))->pending_bits[1] = 0;
+    }
+  }
 }
 
 
@@ -389,7 +456,9 @@ bool I2s_cic_filter::handle_bit(int din, int pdm_decimation, int pdm_shift, uint
     int64_t result = z5 >> pdm_shift;
 
 
-    //gv_trace_dumpMsg(&channel->trace, "Reached decimator, enqueueing value (value: %x)\n", result);
+    //printf("Reached decimator, enqueueing value (value: %lx)\n", result);
+
+
 
 
     *dout = result;
@@ -404,6 +473,11 @@ bool I2s_cic_filter::handle_bit(int din, int pdm_decimation, int pdm_shift, uint
 
 void I2s_rx_channel::handle_rx_bit(int sck, int ws, int bit)
 {
+  if (this->wait_ws_start)
+  {
+    return;
+  }
+
   int pdm = this->id == 0 ? this->periph->r_chmode.ch0_pdm_en_get() : this->periph->r_chmode.ch1_pdm_en_get();
   int ddr = this->id == 0 ? this->periph->r_chmode.ch0_useddr_get() : this->periph->r_chmode.ch1_useddr_get();
   int lsb_first = this->id == 0 ? this->periph->r_chmode.ch0_lsb_first_get() : this->periph->r_chmode.ch1_lsb_first_get();
@@ -454,8 +528,10 @@ void I2s_rx_channel::handle_rx_bit(int sck, int ws, int bit)
 
   if (push)
   {
-    result = result & ((1<<width)-1);
+    if (width < 32)
+      result = result & ((1<<width)-1);
     int bytes = width <= 8 ? 1 : width <= 16 ? 2 : 4;
-    this->push_data((uint8_t *)&result, bytes);
+    if (this->push_data((uint8_t *)&result, bytes))
+      this->wait_ws_start = true;
   }
 }

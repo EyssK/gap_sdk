@@ -42,10 +42,22 @@ void *memset(void *str, int32_t c, size_t n);
 
 int32_t strcmp(const char *str1, const char *str2);
 
+int strncmp(const char *str1, const char *str2, size_t n);
+
+int str_starts_with(const char *str1, const char *str2);
+
+int str_ends_with(const char *str1, const char *str2);
+
 size_t strlen(const char *str);
 
 char *strcat(char *str1, const char *str2);
 
 char *strcpy(char *str1, const char *str2);
+
+size_t strspn(const char *s, const char *accept);
+
+size_t strcspn(const char *s, const char *reject);
+
+char *strchr(const char *s, int c);
 
 #endif  /* __STRING_H__ */

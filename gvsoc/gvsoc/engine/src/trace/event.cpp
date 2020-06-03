@@ -51,8 +51,12 @@ void vp::Event_trace::reg(int64_t timestamp, uint8_t *event, int width, uint8_t 
   if (bytes > this->bytes)
   {
     this->bytes = bytes;
-    this->buffer = (uint8_t *)realloc(this->buffer, bytes);
-    this->flags_mask = (uint8_t *)realloc(this->flags_mask, bytes);
+    //if (this->buffer)
+    //  delete this->buffer;
+    this->buffer = new uint8_t[width];
+    //if (this->flags_mask)
+    //  delete this->flags_mask;
+    this->flags_mask = new uint8_t[width];
   }
 
   memcpy(this->buffer, event, bytes);
@@ -74,7 +78,7 @@ vp::Event_trace *vp::Event_dumper::get_trace(string trace_name, string file_name
 
     if (event_file == NULL)
     {
-      std::string format = this->comp->get_js_config()->get_child_str("**/vcd/format");
+      std::string format = this->comp->get_js_config()->get_child_str("**/events/format");
 
       if (format == "vcd")
       {
@@ -83,6 +87,10 @@ vp::Event_trace *vp::Event_dumper::get_trace(string trace_name, string file_name
       else if (format == "fst")
       {
         event_file = new Fst_file(this, file_name);
+      }
+      else if (format == "raw")
+      {
+        event_file = new Raw_file(this, file_name);
       }
       else
       {

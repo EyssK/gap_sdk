@@ -189,7 +189,8 @@ typedef enum
 {
   CORE_STATE_NONE,
   CORE_STATE_WAITING_EVENT,
-  CORE_STATE_WAITING_BARRIER
+  CORE_STATE_WAITING_BARRIER,
+  CORE_STATE_SKIP_ELW
 } Event_unit_core_state_e;
 
 class Event_unit : public vp::component
@@ -203,7 +204,7 @@ class Event_unit : public vp::component
 
 public:
 
-  Event_unit(const char *config);
+  Event_unit(js::config *config);
 
   int build();
   void start();
@@ -253,6 +254,7 @@ public:
   vp::io_req_status_e wait_event(vp::io_req *req, Event_unit_core_state_e wait_state=CORE_STATE_WAITING_EVENT);
   vp::io_req_status_e put_to_sleep(vp::io_req *req, Event_unit_core_state_e wait_state=CORE_STATE_WAITING_EVENT);
   Event_unit_core_state_e get_state() { return state; }
+  void set_state(Event_unit_core_state_e state) { this->state = state; }
   void irq_ack_sync(int irq, int core);
   static void wakeup_handler(void *__this, vp::clock_event *event);
   static void irq_wakeup_handler(void *__this, vp::clock_event *event);
@@ -265,6 +267,7 @@ public:
   uint32_t clear_evt_mask;
 
   int sync_irq;
+  int pending_elw;
 
 private:
   Event_unit *top;
@@ -289,7 +292,7 @@ private:
 
 
 
-Event_unit::Event_unit(const char *config)
+Event_unit::Event_unit(js::config *config)
 : vp::component(config)
 {
   nb_core = get_config_int("nb_core");
@@ -417,7 +420,7 @@ void Event_unit::trigger_event(int event_mask, uint32_t core_mask)
       send_event(i, event_mask);
     }
   }
-  }
+}
 
 void Event_unit::send_event(int core, uint32_t mask)
 {
@@ -581,6 +584,16 @@ vp::io_req_status_e Event_unit::demux_req(void *__this, vp::io_req *req, int cor
 
   _this->trace.msg("Demux event_unit access (core: %d, offset: 0x%x, size: 0x%x, is_write: %d)\n", core, offset, size, is_write);
 
+  Core_event_unit *core_eu = &_this->core_eu[core];
+
+  core_eu->pending_elw = false;
+
+  if (core_eu->get_state() == CORE_STATE_SKIP_ELW)
+  {
+    core_eu->set_state(CORE_STATE_NONE);
+    return vp::IO_REQ_OK;
+  }
+
   if (size != 4)
   {
     _this->trace.warning("Only 32 bits accesses are allowed\n");
@@ -652,9 +665,9 @@ void Event_unit::start()
 {
 }
 
-extern "C" void *vp_constructor(const char *config)
+extern "C" vp::component *vp_constructor(js::config *config)
 {
-  return (void *)new Event_unit(config);
+  return new Event_unit(config);
 }
 
 
@@ -893,6 +906,7 @@ void Core_event_unit::reset()
   irq_mask = 0;
   clear_evt_mask = 0;
   sync_irq = -1;
+  pending_elw = false;
   state = CORE_STATE_NONE;
   this->clock_itf.sync(1);
 }
@@ -945,6 +959,8 @@ void Core_event_unit::check_state()
       // the on-going synchronization.
       top->trace.msg("Activating clock for IRQ handling(core: %d)\n", core_id);
 
+      this->pending_elw = true;
+
       if (!irq_wakeup_event->is_enqueued())
       {
         top->event_enqueue(irq_wakeup_event, EU_WAKEUP_LATENCY);
@@ -953,21 +969,29 @@ void Core_event_unit::check_state()
     }
     else
     {
-      switch (state)
+      if (status_evt_masked)
       {
-        case CORE_STATE_WAITING_EVENT:
-        case CORE_STATE_WAITING_BARRIER:
-        if (status_evt_masked)
+        if (this->pending_elw)
         {
-          top->trace.msg("Activating clock (core: %d)\n", core_id);
-          state = CORE_STATE_NONE;
-          check_wait_mask();
-          if (!wakeup_event->is_enqueued())
+          this->set_state(CORE_STATE_SKIP_ELW);
+        }
+        else
+        {
+          switch (state)
           {
-            top->event_enqueue(wakeup_event, EU_WAKEUP_LATENCY);
+            case CORE_STATE_WAITING_EVENT:
+            case CORE_STATE_WAITING_BARRIER:
+
+              top->trace.msg("Activating clock (core: %d)\n", core_id);
+              state = CORE_STATE_NONE;
+              check_wait_mask();
+              if (!wakeup_event->is_enqueued())
+              {
+                top->event_enqueue(wakeup_event, EU_WAKEUP_LATENCY);
+              }
+              break;
           }
         }
-        break;
       }
     }
   }
@@ -1303,6 +1327,7 @@ void Barrier_unit::check_barrier(int barrier_id)
   {
     trace.msg("Barrier reached, triggering event (barrier: %d, coreMask: 0x%x, targetMask: 0x%x)\n", barrier_id, barrier->core_mask, barrier->target_mask);
     barrier->status = 0;
+
     top->trigger_event(1<<barrier_event, barrier->target_mask);
   }
 }

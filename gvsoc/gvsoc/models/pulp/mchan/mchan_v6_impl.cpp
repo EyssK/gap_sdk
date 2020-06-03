@@ -157,7 +157,7 @@ class mchan : public vp::component
 
 public:
 
-  mchan(const char *config);
+  mchan(js::config *config);
 
   int build();
   void start();
@@ -287,7 +287,7 @@ int Mchan_channel::unpack_command(Mchan_cmd *cmd)
 
     if (!cmd->is_2d) 
     {
-     top->trace.msg("New 1D command ready (input: %d, source: 0x%lx, dest: 0x%lx, size: 0x%x, loc2ext: %d, counter: %d)\n", id, cmd->source, cmd->dest, cmd->size, cmd->loc2ext, cmd->counter_id);
+     top->trace.msg("New 1D command ready (input: %d, source: 0x%lx, dest: 0x%lx, size: 0x%x, loc2ext: %d, counter: %d, raise_evt: %d, raise_irq: %d)\n", id, cmd->source, cmd->dest, cmd->size, cmd->loc2ext, cmd->counter_id, cmd->raise_event, cmd->raise_irq);
      goto unpackDone;
    }
  }
@@ -558,7 +558,7 @@ void mchan::loc_response(void *_this, vp::io_req *req)
 }
 
 
-mchan::mchan(const char *config)
+mchan::mchan(js::config *config)
 : vp::component(config)
 {
   nb_channels = get_config_int("nb_channels");
@@ -1216,7 +1216,7 @@ void Mchan_cmd::init()
   step = 0;
 }
 
-extern "C" void *vp_constructor(const char *config)
+extern "C" vp::component *vp_constructor(js::config *config)
 {
-  return (void *)new mchan(config);
+  return new mchan(config);
 }

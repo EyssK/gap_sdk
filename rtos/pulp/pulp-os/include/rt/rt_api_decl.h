@@ -45,7 +45,6 @@
 #include "rt/rt_i2c.h"
 #include "rt/rt_camera.h"
 #include "rt/rt_himax.h"
-#include "rt/rt_ov7670.h"
 #include "rt/rt_dma.h"
 #include "rt/rt_sync_mc.h"
 #include "rt/rt_perf.h"
@@ -74,5 +73,6 @@
 #include "rt/rt_bridge.h"
 #include "rt/rt_eeprom.h"
 #include "rt/rt_task.h"
+#include "rt/hwce.h"
 
 #endif

@@ -8,54 +8,42 @@ ifndef GAP_SDK_HOME
   $(error Source sourceme in gap_sdk first)
 endif
 
-MODEL_PREFIX=Mnist
-ifndef MNIST_BITS
-  MNIST_BITS=8
-endif
+include common.mk
 
-LINK_IMAGE=samples/5223_5.pgm
+LOAD_QUANTIZATION= #-q #to load a tflite quantized model
+IMAGE=$(CURDIR)/samples/5223_5.pgm
 
+io=host
 
-$(info Building GAP8 mode with $(MNIST_BITS) bit quantization)
-
-# For debugging don't load an image
-# Run the network with zeros
-# NO_IMAGE=1
-
-# The training of the model is slightly different depending on
-# the quantization. This is because in 8 bit mode we used signed
-# 8 bit so the input to the model needs to be shifted 1 bit
-ifeq ($(MNIST_BITS),8)
-  $(info Configure 8 bit model)
-  GAP_FLAGS += -DMNIST_8BIT
-  NNTOOL_SCRIPT=model/nntool_script8
-  MODEL_SUFFIX = _8BIT
+QUANT_BITS?=8
+BUILD_DIR=BUILD
+ifeq ($(QUANT_BITS), 8)
+	MODEL_SQ8=1
+	NNTOOL_SCRIPT=model/nntool_script
+  	MODEL_SUFFIX = _SQ8BIT
 else
-  ifeq ($(MNIST_BITS),16)
-    $(info Configure 16 bit model)
-    GAP_FLAGS += -DMNIST_16BIT
+  ifeq ($(QUANT_BITS),16)
     NNTOOL_SCRIPT=model/nntool_script16
     MODEL_SUFFIX = _16BIT
   else
-    $(error Don't know how to build with this bit width)
+    $(error Don\'t know how to build with this bit width)
   endif
 endif
 
-include model_decl.mk
+$(info Building GAP8 mode with $(QUANT_BITS) bit quantization)
 
-ifdef LINK_IMAGE
-  LINK_IMAGE_HEADER=$(MODEL_BUILD)/image.h
-  LINK_IMAGE_NAME=$(subst .,_,$(subst /,_,$(LINK_IMAGE)))
-  GAP_FLAGS += -DLINK_IMAGE_HEADER="\"$(LINK_IMAGE_HEADER)\"" -DLINK_IMAGE_NAME="$(LINK_IMAGE_NAME)"
-else
-  LINK_IMAGE_HEADER=
-endif
+TRAINED_TFLITE_MODEL=model/$(MODEL_PREFIX).tflite
+
+include ../common/model_decl.mk
 
 # Here we set the memory allocation for the generated kernels
 # REMEMBER THAT THE L1 MEMORY ALLOCATION MUST INCLUDE SPACE
 # FOR ALLOCATED STACKS!
-MODEL_L1_MEMORY=52000
-MODEL_L2_MEMORY=307200
+CLUSTER_STACK_SIZE=4028
+CLUSTER_SLAVE_STACK_SIZE=1024
+TOTAL_STACK_SIZE=$(shell expr $(CLUSTER_STACK_SIZE) \+ $(CLUSTER_SLAVE_STACK_SIZE) \* 7)
+MODEL_L1_MEMORY=$(shell expr 60000 \- $(TOTAL_STACK_SIZE))
+MODEL_L2_MEMORY=250000
 MODEL_L3_MEMORY=8388608
 # hram - HyperBus RAM
 # qspiram - Quad SPI RAM
@@ -64,54 +52,30 @@ MODEL_L3_EXEC=hram
 # qpsiflash - Quad SPI Flash
 MODEL_L3_CONST=hflash
 
-# use a custom template to switch on the performance checking
-MODEL_GENFLAGS_EXTRA= -c "model/code_template.c"
-
 pulpChip = GAP
-PULP_APP = mnist2
+PULP_APP = mnist
 USE_PMSIS_BSP=1
 
-PULP_APP_SRCS += Mnist.c ImgIO.c $(MODEL_SRCS)
+APP = mnist
+APP_SRCS += $(MODEL_PREFIX).c $(MODEL_GEN_C) $(MODEL_COMMON_SRCS) $(CNN_LIB)
 
-GAP_FLAGS += -O3 -s -mno-memcpy -fno-tree-loop-distribute-patterns 
-GAP_FLAGS += -I. -I./helpers -I$(TILER_EMU_INC) -I$(TILER_INC) -I$(GEN_PATH) -I$(MODEL_BUILD)
-GAP_FLAGS += -DPERF
+APP_CFLAGS += -g -O1 -mno-memcpy -fno-tree-loop-distribute-patterns 
+APP_CFLAGS += -I. -I$(MODEL_COMMON_INC) -I$(TILER_EMU_INC) -I$(TILER_INC) $(CNN_LIB_INCLUDE) -I$(MODEL_BUILD)
+APP_CFLAGS += -DPERF -DAT_MODEL_PREFIX=$(MODEL_PREFIX) $(MODEL_SIZE_CFLAGS)
+APP_CFLAGS += -DSTACK_SIZE=$(CLUSTER_STACK_SIZE) -DSLAVE_STACK_SIZE=$(CLUSTER_SLAVE_STACK_SIZE)
+APP_CFLAGS += -DAT_IMAGE=$(IMAGE)
 
-ifeq ($(platform),gvsoc)
-  $(info Platform is GVSOC)
-  override runner_args += --config-opt=flash/fs/files=$(realpath $(MODEL_TENSORS))
-else
-  $(info Platform is GAPUINO)
-  PLPBRIDGE_FLAGS = -f $(MODEL_TENSORS)
-endif
+READFS_FILES=$(abspath $(MODEL_TENSORS))
+PLPBRIDGE_FLAGS += -f
 
-ifdef NO_IMAGE
-  GAP_FLAGS += -DNO_IMAGE
-else
-  ifndef LINK_IMAGE
-    PLPBRIDGE_FLAGS += -fileIO 15
-  endif
-endif
-
-ifdef LINK_IMAGE
-# all depends on the model and the image header
-all:: model $(LINK_IMAGE_HEADER)
-
-$(LINK_IMAGE_HEADER): $(LINK_IMAGE)
-	xxd -i $< $@
-else
 # all depends on the model
 all:: model
-endif
 
 clean:: clean_model
 
-clean_all: clean clean_train
-	rm -rf BUILD*
-	rm mnist_emul
-
-.PHONY: clean_all
-
-include model_rules.mk
+include train_model.mk
+include ../common/model_rules.mk
+$(info APP_SRCS... $(APP_SRCS))
+$(info APP_CFLAGS... $(APP_CFLAGS))
 include $(RULES_DIR)/pmsis_rules.mk
 

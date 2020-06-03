@@ -68,11 +68,12 @@ void __rt_deinit()
 
 #else
 
-extern unsigned char stack;
-extern unsigned char stack_start;
+extern unsigned char __rt_fc_stack[];
+extern unsigned int __rt_fc_stack_size;
 
 void __rt_init()
 {
+
 #if PULP_CHIP_FAMILY == CHIP_GAP
   // Always allow JTAG accesses for now as security is not implemented
   hal_pmu_bypass_set (ARCHI_REG_FIELD_SET (hal_pmu_bypass_get (), 1, 11, 1) );
@@ -82,10 +83,9 @@ void __rt_init()
   __rt_bridge_set_available();
 #endif
 
-  if (rt_platform() == ARCHI_PLATFORM_GVSOC)
-  {
-    cpu_stack_check_enable((int)&stack_start, (int)&stack);
-  }
+#ifdef __RT_USE_ASSERT
+  cpu_stack_check_enable((int)__rt_fc_stack, (int)__rt_fc_stack + __rt_fc_stack_size);
+#endif
 
   rt_trace(RT_TRACE_INIT, "Starting runtime initialization\n");
 
@@ -162,10 +162,9 @@ error:
 
 void __rt_deinit()
 {
-  if (rt_platform() == ARCHI_PLATFORM_GVSOC)
-  {
-    cpu_stack_check_disable();
-  }
+#ifdef __RT_USE_ASSERT
+  cpu_stack_check_disable();
+#endif
 
 #ifndef __ariane__
 
@@ -324,4 +323,25 @@ static int __rt_check_clusters_start()
 void pi_open_from_conf(struct pi_device *device, void *conf)
 {
   device->config = conf;
+}
+
+void pi_pulpos_conf_init(struct pi_pulpos_conf *conf)
+{
+  conf->io_dev = PI_PULPOS_IO_DEV_BRIDGE;
+}
+
+int pi_os_open(struct pi_device *device)
+{
+  struct pi_pulpos_conf *conf = (struct pi_pulpos_conf *)device->config;
+
+  if (conf->io_dev != PI_PULPOS_IO_DEV_BRIDGE)
+  {
+    __rt_iodev = conf->io_dev;
+
+    if (__rt_iodev == PI_PULPOS_IO_DEV_UART)
+      __rt_iodev_uart_baudrate = conf->uart.baudrate;
+
+    __rt_io_set();
+  }
+  return 0;
 }

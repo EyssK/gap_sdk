@@ -636,133 +636,8 @@ typedef struct {
 /* ----------------------------------------------------------------------------
    -- I2S Peripheral Access Layer
    ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup I2S_Peripheral_Access_Layer I2S Peripheral Access Layer
- * @{
- */
-
-/** I2S - Register Layout Typedef */
-typedef struct {
-  UDMA_Type      UDMA_I2S;                         /**< I2S UDMA general register, offset: 0x0 */
-  __IO  uint32_t EXT;                              /**< I2S external clock configuration register, offset: 0x20 */
-  __IO  uint32_t CFG_CLKGEN0;                      /**< I2S clock/WS generator 0 configuration register, offset: 0x24 */
-  __IO  uint32_t CFG_CLKGEN1;                      /**< I2S clock/WS generator 1 configuration register, offset: 0x28 */
-  __IO  uint32_t CHMODE;                           /**< I2S channels mode configuration register, offset: 0x2C */
-  __IO  uint32_t FILT_CH0;                         /**< I2S channels 0 filtering configuration register, offset: 0x30 */
-  __IO  uint32_t FILT_CH1;                         /**< I2S channels 0 filtering configuration register, offset: 0x34 */
-} I2S_Type;
-
-/* ----------------------------------------------------------------------------
-   -- I2S Register Masks
-   ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup I2S_Register_Masks I2S Register Masks
- * @{
- */
-/*! @name EXT - I2S external clock configuration Register */
-#define I2S_EXT_BITS_WORD_MASK                        (0x1FU)
-#define I2S_EXT_BITS_WORD_SHIFT                       (0U)
-#define I2S_EXT_BITS_WORD(x)                          (((uint32_t)(((uint32_t)(x)) << I2S_EXT_BITS_WORD_SHIFT)) & I2S_EXT_BITS_WORD_MASK)
-
-/*! @name CFG_CLKGEN0 - I2S clock/WS generator 0 configuration Register */
-#define I2S_CFG_CLKGEN0_BITS_WORD_MASK                (0x1FU)
-#define I2S_CFG_CLKGEN0_BITS_WORD_SHIFT               (0U)
-#define I2S_CFG_CLKGEN0_BITS_WORD(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN0_BITS_WORD_SHIFT)) & I2S_CFG_CLKGEN0_BITS_WORD_MASK)
-#define I2S_CFG_CLKGEN0_CLK_EN_MASK                   (0x100U)
-#define I2S_CFG_CLKGEN0_CLK_EN_SHIFT                  (8U)
-#define I2S_CFG_CLKGEN0_CLK_EN(x)                     (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN0_CLK_EN_SHIFT)) & I2S_CFG_CLKGEN0_CLK_EN_MASK)
-#define I2S_CFG_CLKGEN0_CLK_DIV_MASK                  (0xFFFF0000U)
-#define I2S_CFG_CLKGEN0_CLK_DIV_SHIFT                 (16U)
-#define I2S_CFG_CLKGEN0_CLK_DIV(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN0_CLK_DIV_SHIFT)) & I2S_CFG_CLKGEN0_CLK_DIV_MASK)
-
-/*! @name CFG_CLKGEN1 - I2S clock/WS generator 1 configuration Register */
-#define I2S_CFG_CLKGEN1_BITS_WORD_MASK                (0x1FU)
-#define I2S_CFG_CLKGEN1_BITS_WORD_SHIFT               (0U)
-#define I2S_CFG_CLKGEN1_BITS_WORD(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN1_BITS_WORD_SHIFT)) & I2S_CFG_CLKGEN1_BITS_WORD_MASK)
-#define I2S_CFG_CLKGEN1_CLK_EN_MASK                   (0x100U)
-#define I2S_CFG_CLKGEN1_CLK_EN_SHIFT                  (8U)
-#define I2S_CFG_CLKGEN1_CLK_EN(x)                     (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN1_CLK_EN_SHIFT)) & I2S_CFG_CLKGEN1_CLK_EN_MASK)
-#define I2S_CFG_CLKGEN1_CLK_DIV_MASK                  (0xFFFF0000U)
-#define I2S_CFG_CLKGEN1_CLK_DIV_SHIFT                 (16U)
-#define I2S_CFG_CLKGEN1_CLK_DIV(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CFG_CLKGEN1_CLK_DIV_SHIFT)) & I2S_CFG_CLKGEN1_CLK_DIV_MASK)
-
-/*! @name CHMODE - I2S channels mode configuration Register */
-#define I2S_CHMODE_CH0_SNAP_CAM_MASK                (0x1U)
-#define I2S_CHMODE_CH0_SNAP_CAM_SHIFT               (0U)
-#define I2S_CHMODE_CH0_SNAP_CAM(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_SNAP_CAM_SHIFT)) & I2S_CHMODE_CH0_SNAP_CAM_MASK)
-#define I2S_CHMODE_CH0_LSB_FIRST_MASK               (0x10U)
-#define I2S_CHMODE_CH0_LSB_FIRST_SHIFT              (4U)
-#define I2S_CHMODE_CH0_LSB_FIRST(x)                 (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_LSB_FIRST_SHIFT)) & I2S_CHMODE_CH0_LSB_FIRST_MASK)
-#define I2S_CHMODE_CH0_PDM_USEFILTER_MASK           (0x100U)
-#define I2S_CHMODE_CH0_PDM_USEFILTER_SHIFT          (8U)
-#define I2S_CHMODE_CH0_PDM_USEFILTER(x)             (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_PDM_USEFILTER_SHIFT)) & I2S_CHMODE_CH0_PDM_USEFILTER_MASK)
-#define I2S_CHMODE_CH0_PDM_EN_MASK                  (0x1000U)
-#define I2S_CHMODE_CH0_PDM_EN_SHIFT                 (12U)
-#define I2S_CHMODE_CH0_PDM_EN(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_PDM_EN_SHIFT)) & I2S_CHMODE_CH0_PDM_EN_MASK)
-#define I2S_CHMODE_CH0_USEDDR_MASK                  (0x10000U)
-#define I2S_CHMODE_CH0_USEDDR_SHIFT                 (16U)
-#define I2S_CHMODE_CH0_USEDDR(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_USEDDR_SHIFT)) & I2S_CHMODE_CH0_USEDDR_MASK)
-#define I2S_CHMODE_CH0_MODE_MASK                    (0x3000000U)
-#define I2S_CHMODE_CH0_MODE_SHIFT                   (24U)
-#define I2S_CHMODE_CH0_MODE(x)                      (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH0_MODE_SHIFT)) & I2S_CHMODE_CH0_MODE_MASK)
-
-#define I2S_CHMODE_CH1_SNAP_CAM_MASK                (0x2U)
-#define I2S_CHMODE_CH1_SNAP_CAM_SHIFT               (1U)
-#define I2S_CHMODE_CH1_SNAP_CAM(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_SNAP_CAM_SHIFT)) & I2S_CHMODE_CH1_SNAP_CAM_MASK)
-#define I2S_CHMODE_CH1_LSB_FIRST_MASK               (0x20U)
-#define I2S_CHMODE_CH1_LSB_FIRST_SHIFT              (5U)
-#define I2S_CHMODE_CH1_LSB_FIRST(x)                 (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_LSB_FIRST_SHIFT)) & I2S_CHMODE_CH1_LSB_FIRST_MASK)
-#define I2S_CHMODE_CH1_PDM_USEFILTER_MASK           (0x200U)
-#define I2S_CHMODE_CH1_PDM_USEFILTER_SHIFT          (9U)
-#define I2S_CHMODE_CH1_PDM_USEFILTER(x)             (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_PDM_USEFILTER_SHIFT)) & I2S_CHMODE_CH1_PDM_USEFILTER_MASK)
-#define I2S_CHMODE_CH1_PDM_EN_MASK                  (0x2000U)
-#define I2S_CHMODE_CH1_PDM_EN_SHIFT                 (13U)
-#define I2S_CHMODE_CH1_PDM_EN(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_PDM_EN_SHIFT)) & I2S_CHMODE_CH1_PDM_EN_MASK)
-#define I2S_CHMODE_CH1_USEDDR_MASK                  (0x20000U)
-#define I2S_CHMODE_CH1_USEDDR_SHIFT                 (17U)
-#define I2S_CHMODE_CH1_USEDDR(x)                    (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_USEDDR_SHIFT)) & I2S_CHMODE_CH1_USEDDR_MASK)
-#define I2S_CHMODE_CH1_MODE_MASK                    (0xC000000U)
-#define I2S_CHMODE_CH1_MODE_SHIFT                   (26U)
-#define I2S_CHMODE_CH1_MODE(x)                      (((uint32_t)(((uint32_t)(x)) << I2S_CHMODE_CH1_MODE_SHIFT)) & I2S_CHMODE_CH1_MODE_MASK)
-
-/*! @name FILT_CH0 - I2S channels 0 filtering configuration Register */
-#define I2S_FILT_CH0_DECIMATION_MASK                (0x3FFU)
-#define I2S_FILT_CH0_DECIMATION_SHIFT               (0U)
-#define I2S_FILT_CH0_DECIMATION(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_FILT_CH0_DECIMATION_SHIFT)) & I2S_FILT_CH0_DECIMATION_MASK)
-#define I2S_FILT_CH0_SHIFT_MASK                     (0x70000U)
-#define I2S_FILT_CH0_SHIFT_SHIFT                    (16U)
-#define I2S_FILT_CH0_SHIFT(x)                       (((uint32_t)(((uint32_t)(x)) << I2S_FILT_CH0_SHIFT_SHIFT)) & I2S_FILT_CH0_SHIFT_MASK)
-
-/*! @name FILT_CH1 - I2S channels 0 filtering configuration Register */
-#define I2S_FILT_CH1_DECIMATION_MASK                (0x3FFU)
-#define I2S_FILT_CH1_DECIMATION_SHIFT               (0U)
-#define I2S_FILT_CH1_DECIMATION(x)                  (((uint32_t)(((uint32_t)(x)) << I2S_FILT_CH1_DECIMATION_SHIFT)) & I2S_FILT_CH1_DECIMATION_MASK)
-#define I2S_FILT_CH1_SHIFT_MASK                     (0x70000U)
-#define I2S_FILT_CH1_SHIFT_SHIFT                    (16U)
-#define I2S_FILT_CH1_SHIFT(x)                       (((uint32_t)(((uint32_t)(x)) << I2S_FILT_CH1_SHIFT_SHIFT)) & I2S_FILT_CH1_SHIFT_MASK)
-
-/*!
- * @}
- */ /* end of group I2S_Register_Masks */
-
-
-/* I2S - Peripheral instance base addresses */
-/** Peripheral I2S base address */
-#define I2S_BASE                                 (UDMA_BASE + 8 * 128U)
-/** Peripheral I2S base pointer */
-#define I2S                                      ((I2S_Type *)I2S_BASE)
-/** Array initializer of I2S peripheral base addresses */
-#define I2S_BASE_ADDRS                           { I2S_BASE }
-/** Array initializer of I2S peripheral base pointers */
-#define I2S_BASE_PTRS                            { I2S }
-/** Interrupt vectors for the I2S peripheral type */
-#define I2S_L_IRQS                               { I2S0_L_IRQn, I2S1_L_IRQn }
-#define I2S_R_IRQS                               { I2S0_R_IRQn, I2S1_R_IRQn }
-/*!
- * @}
- */ /* end of group I2S_Peripheral_Access_Layer */
+#include "periph/i2s_periph.h"
+#define i2s(id) ((i2s_t *) UDMA_I2S(id))
 
 
 /* ----------------------------------------------------------------------------
@@ -1045,167 +920,12 @@ typedef struct {
 
 
 /* ----------------------------------------------------------------------------
-   -- PWM CTRL Peripheral Access Layer
+   -- PWM Peripheral
    ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup PWM_CTRL_Peripheral_Access_Layer PWM_CTRL Peripheral Access Layer
- * @{
- */
-
-/** PWM - Register Layout Typedef */
-typedef struct {
-  __IO  uint32_t EVENT_CFG;       /**< PWM event configuration register, offset: 0x100 */
-  __IO  uint32_t CH_EN;           /**< PWM channel enable register, offset: 0x104 */
-} PWM_CTRL_Type;
-
-/* ----------------------------------------------------------------------------
-   -- PWM_CTRL Register Masks
-   ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup PWM_CTRL_Register_Masks PWM_CTRL Register Masks
- * @{
- */
-
-/* Register Access. */
-/* Set Event. */
-#define PWM_CTRL_EVENT_TIMER_CHAN_SET_MASK               ( 0xFFFFU )
-#define PWM_CTRL_EVENT_TIMER_CHAN_SET_SHIFT( x )         ( (uint32_t)(x) )
-#define PWM_CTRL_EVENT_TIMER_CHAN_SET( tim, chan, evt )  (((uint32_t)((uint32_t)((uint32_t)tim << 2 | (uint32_t)chan)) << PWM_CTRL_EVENT_TIMER_CHAN_SET_SHIFT( evt << 2 )) & PWM_CTRL_EVENT_TIMER_CHAN_SET_MASK)
-
-/* Enable Event. */
-#define PWM_CTRL_EVENT_TIMER_ENA_MASK                    ( 0xF0000U )
-#define PWM_CTRL_EVENT_TIMER_ENA_SHIFT                   ( 16 )
-#define PWM_CTRL_EVENT_TIMER_ENA( x )                    (((uint32_t)(((uint32_t)(x)) << PWM_CTRL_EVENT_TIMER_ENA_SHIFT)) & PWM_CTRL_EVENT_TIMER_ENA_MASK)
-
-/* Timer enable. */
-#define PWM_CTRL_CG_ENA_MASK                             ( 0xFU )
-#define PWM_CTRL_CG_ENA_SHIFT                            ( 0 )
-#define PWM_CTRL_CG_ENA( x )                             (((uint32_t)(((uint32_t)(x)) << PWM_CTRL_CG_ENA_SHIFT)) & PWM_CTRL_CG_ENA_MASK)
-
-/*!
- * @}
- */ /* end of group PWM_CTRL_Register_Masks */
-
-/* PWM_CTRL - Peripheral instance base addresses */
-/** Peripheral PWM_CTRL_CTRL base address */
-#define PWM_CTRL_BASE                                (SOC_PERI_BASE + 0x05100u)
-/** Peripheral PWM_CTRL_CTRL base pointer */
-#define PWM_CTRL                                     ((PWM_CTRL_Type *)PWM_CTRL_BASE)
-/** Array initializer of PWM_CTRL_CTRL base addresses */
-#define PWM_CTRL_BASE_ADDRS                          { PWM_CTRL_BASE }
-/** Array initializer of PWM_CTRL_CTRL base pointers */
-#define PWM_CTRL_BASE_PTRS                           { PWM_CTRL }
-
-/*!
- * @}
- */ /* end of group PWM_CTRL_Peripheral_Access_Layer */
-
-
-/* ----------------------------------------------------------------------------
-   -- PWM Peripheral Access Layer
-   ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup PWM_Peripheral_Access_Layer PWM Peripheral Access Layer
- * @{
- */
-
-/** ADV_TIMER - Register Layout Typedef */
-typedef struct {
-  __O   uint32_t CMD;              /**< TIMER control register, offset: 0x00 */
-  __IO  uint32_t CFG;              /**< TIMER configuration register, offset: 0x04 */
-  __IO  uint32_t TH;               /**< TIMER threshold register, offset: 0x08 */
-  __IO  uint32_t CH_TH[4];         /**< TIMER Channles' threshold register, offset: 0x0c */
-  __IO  uint32_t CH_LUT[4];        /**< TIMER Channles' LUT register, offset: 0x1c */
-  __I   uint32_t COUNTER;          /**< TIMER Counter register, offset: 0x2c */
-} PWM_Type;
-
-/* ----------------------------------------------------------------------------
-   -- PWM Register Masks
-   ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup PWM_Register_Masks PWM Register Masks
- * @{
- */
-
-/* Register Access. */
-/* Send command. */
-#define PWM_CMD_MASK                                ( 0x1FU )
-#define PWM_CMD_SHIFT                               ( 0 )
-#define PWM_CMD( x )                                (((uint32_t)(((uint32_t)(x)) << PWM_CMD_SHIFT)) & PWM_CMD_MASK)
-
-/* Timer config. */
-#define PWM_CONFIG_INPUT_SRC_MASK                   ( 0xFFU )
-#define PWM_CONFIG_INPUT_SRC_SHIFT                  ( 0 )
-#define PWM_CONFIG_INPUT_SRC( x )                   (((uint32_t)(((uint32_t)(x)) << PWM_CONFIG_INPUT_SRC_SHIFT)) & PWM_CONFIG_INPUT_SRC_MASK)
-
-#define PWM_CONFIG_INPUT_MODE_MASK                  ( 0x700U )
-#define PWM_CONFIG_INPUT_MODE_SHIFT                 ( 8 )
-#define PWM_CONFIG_INPUT_MODE( x )                  (((uint32_t)(((uint32_t)(x)) << PWM_CONFIG_INPUT_MODE_SHIFT)) & PWM_CONFIG_INPUT_MODE_MASK)
-
-#define PWM_CONFIG_CLKSEL_MASK                      ( 0x800U )
-#define PWM_CONFIG_CLKSEL_SHIFT                     ( 11 )
-#define PWM_CONFIG_CLKSEL( x )                      (((uint32_t)(((uint32_t)(x)) << PWM_CONFIG_CLKSEL_SHIFT)) & PWM_CONFIG_CLKSEL_MASK)
-
-#define PWM_CONFIG_UPDOWNSEL_MASK                   ( 0x1000U )
-#define PWM_CONFIG_UPDOWNSEL_SHIFT                  ( 12 )
-#define PWM_CONFIG_UPDOWNSEL( x )                   (((uint32_t)(((uint32_t)(x)) << PWM_CONFIG_UPDOWNSEL_SHIFT)) & PWM_CONFIG_UPDOWNSEL_MASK)
-
-#define PWM_CONFIG_PRESCALE_MASK                   ( 0xFF0000U )
-#define PWM_CONFIG_PRESCALE_SHIFT                  ( 16 )
-#define PWM_CONFIG_PRESCALE( x )                   (((uint32_t)(((uint32_t)(x)) << PWM_CONFIG_PRESCALE_SHIFT)) & PWM_CONFIG_PRESCALE_MASK)
-
-/* Channel config. */
-#define PWM_THRESHOLD_LOW_MASK                      ( 0xFFFFU )
-#define PWM_THRESHOLD_LOW_SHIFT                     ( 0 )
-#define PWM_THRESHOLD_LOW( x )                      (((uint32_t)(((uint32_t)(x)) << PWM_THRESHOLD_LOW_SHIFT)) & PWM_THRESHOLD_LOW_MASK)
-
-#define PWM_THRESHOLD_HIGH_MASK                     ( 0xFFFF0000U )
-#define PWM_THRESHOLD_HIGH_SHIFT                    ( 16 )
-#define PWM_THRESHOLD_HIGH( x )                     (((uint32_t)(((uint32_t)(x)) << PWM_THRESHOLD_HIGH_SHIFT)) & PWM_THRESHOLD_HIGH_MASK)
-
-/* Channel config. */
-#define PWM_CHANNEL_CONFIG_THRESHOLD_MASK           ( 0xFFFFU )
-#define PWM_CHANNEL_CONFIG_THRESHOLD_SHIFT          ( 0 )
-#define PWM_CHANNEL_CONFIG_THRESHOLD( x )           (((uint32_t)(((uint32_t)(x)) << PWM_CHANNEL_CONFIG_THRESHOLD_SHIFT)) & PWM_CHANNEL_CONFIG_THRESHOLD_MASK)
-
-#define PWM_CHANNEL_CONFIG_MODE_MASK                ( 0x70000U )
-#define PWM_CHANNEL_CONFIG_MODE_SHIFT               ( 16 )
-#define PWM_CHANNEL_CONFIG_MODE( x )                (((uint32_t)(((uint32_t)(x)) << PWM_CHANNEL_CONFIG_MODE_SHIFT)) & PWM_CHANNEL_CONFIG_MODE_MASK)
-
-/*!
- * @}
- */ /* end of group PWM_Register_Masks */
-
-
-/* PWM - Peripheral instance base addresses */
-/** Peripheral PWM base address */
-#define PWM0_BASE                               (SOC_PERI_BASE + 0x05000u)
-/** Peripheral PWM base pointer */
-#define PWM0                                    ((PWM_Type *)PWM0_BASE)
-/** Peripheral PWM base address */
-#define PWM1_BASE                               (PWM0_BASE + 0x40u)
-/** Peripheral PWM base pointer */
-#define PWM1                                    ((PWM_Type *)PWM1_BASE)
-/** Peripheral PWM base address */
-#define PWM2_BASE                               (PWM1_BASE + 0x40u)
-/** Peripheral PWM base pointer */
-#define PWM2                                    ((PWM_Type *)PWM2_BASE)
-/** Peripheral PWM base address */
-#define PWM3_BASE                               (PWM2_BASE + 0x40u)
-/** Peripheral PWM base pointer */
-#define PWM3                                    ((PWM_Type *)PWM3_BASE)
-/** Array initializer of PWM base addresses */
-#define PWM_BASE_ADDRS                          { PWM0_BASE, PWM1_BASE, PWM2_BASE, PWM3_BASE }
-/** Array initializer of PWM base pointers */
-#define PWM_BASE_PTRS                           { PWM0, PWM1, PWM2, PWM3 }
-
-/*!
- * @}
- */ /* end of group PWM_Peripheral_Access_Layer */
+#include "periph/pwm_periph.h"
+#include "periph/pwm_ctrl_periph.h"
+#define pwm(id) ((pwm_t *) (ADV_TIMER_ADDR + (id << 6)))
+#define pwm_ctrl ((pwm_ctrl_t *) (ADV_TIMER_ADDR + 0x100))
 
 
 
@@ -1261,8 +981,6 @@ typedef struct {
 /*!
  * @}
  */ /* end of group SOCEU_Peripheral_Access_Layer */
-
-
 
 
 
@@ -1442,198 +1160,8 @@ typedef struct {
 /* ----------------------------------------------------------------------------
    -- RTC_APB Peripheral Access Layer
    ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup RTC_APB_Peripheral_Access_Layer RTC_APB Peripheral Access Layer
- * @{
- */
-
-/** RTC_APB - Register Layout Typedef */
-typedef struct {
-  __IO  uint32_t STATUS;                     /**< RTC_APB_Status register, offset: 0x00 */
-  __IO  uint32_t REQUEST;                    /**< RTC_APB_Request register, offset: 0x04 */
-  __IO  uint32_t DATA;                       /**< RTC_APB_Data register, offset: 0x08 */
-  __IO  uint32_t _reserved;                  /**< reserved, offset: 0x0C */
-  __IO  uint32_t IRQ_CTRL;                   /**< RTC_APB_IRQ_Control register, offset: 0x10 */
-  __IO  uint32_t IRQ_MASK;                   /**< RTC_APB_IRQ_Mask register, offset: 0x14 */
-  __IO  uint32_t IRQ_FLAG;                   /**< RTC_APB_IRQ_Flag register, offset: 0x18 */
-} RTC_APB_Type;
-
-/* ----------------------------------------------------------------------------
-   -- RTC_APB Register Masks
-   ---------------------------------------------------------------------------- */
-
-/*!
- * @addtogroup RTC_APB_Register_Masks RTC_APB Register Masks
- * @{
- */
-/*! @name STATUS - RTC_APB STATUS register */
-#define RTC_APB_STATUS_IRQ_EN_MASK                     (0x3FU)
-#define RTC_APB_STATUS_IRQ_EN_SHIFT                    (0U)
-#define RTC_APB_STATUS_IRQ_EN(x)                       (((uint32_t)(((uint32_t)(x))/* << RTC_APB_STATUS_IRQ_EN_SHIFT*/)) & RTC_APB_STATUS_IRQ_EN_MASK)
-
-/*! @name REQUEST - RTC_APB REQUEST Access register */
-#define RTC_APB_REQUEST_ACCESS_ADDR_MASK               (0x3FU)
-#define RTC_APB_REQUEST_ACCESS_ADDR_SHIFT              (0U)
-#define RTC_APB_REQUEST_ACCESS_ADDR(x)                 (((uint32_t)(((uint32_t)(x))/* << RTC_APB_REQUEST_ACCESS_ADDR_SHIFT*/)) & RTC_APB_REQUEST_ACCESS_ADDR_MASK)
-#define RTC_APB_REQUEST_ACCESS_RW_MASK                 (0x10000U)
-#define RTC_APB_REQUEST_ACCESS_RW_SHIFT                (16U)
-#define RTC_APB_REQUEST_ACCESS_RW(x)                   (((uint32_t)(((uint32_t)(x)) << RTC_APB_REQUEST_ACCESS_RW_SHIFT)) & RTC_APB_REQUEST_ACCESS_RW_MASK)
-
-/*! @name IRQ_FLAG - RTC_APB IRQ_FLAG Access register */
-#define RTC_APB_IRQ_FLAG_READ_MASK                     (0x1U)
-#define RTC_APB_IRQ_FLAG_READ_SHIFT                    (0U)
-#define RTC_APB_IRQ_FLAG_READ(x)                       (((uint32_t)(((uint32_t)(x))/* << RTC_APB_IRQ_FLAG_READ_SHIFT*/)) & RTC_APB_IRQ_FLAG_READ_MASK)
-#define RTC_APB_IRQ_FLAG_WRITE_MASK                    (0x2U)
-#define RTC_APB_IRQ_FLAG_WRITE_SHIFT                   (1U)
-#define RTC_APB_IRQ_FLAG_WRITE(x)                      (((uint32_t)(((uint32_t)(x)) << RTC_APB_IRQ_FLAG_WRITE_SHIFT)) & RTC_APB_IRQ_FLAG_WRITE_MASK)
-
-
-
-
-
-/*!
- * @}
- */ /* end of group RTC_APB_Register_Masks */
-
-/*!
- * @addtogroup RTC_Register_Masks RTC Register Masks
- * @{
- */
-/* Bit field of RTC indirect Access Register */
-#define RTC_STATUS_ADDR                     0x00
-#define RTC_CTRL_ADDR                       0x01
-#define RTC_CLK_CTRL_ADDR                   0x02
-#define RTC_IRQ_CTRL_ADDR                   0x08
-#define RTC_IRQ_MASK_ADDR                   0x09
-#define RTC_IRQ_FLAG_ADDR                   0x0A
-#define RTC_CALENDAR_CTRL_ADDR              0x10
-#define RTC_CALENDAR_TIME_ADDR              0x12
-#define RTC_CALENDAR_DATE_ADDR              0x13
-#define RTC_ALARM_CTRL_ADDR                 0x18
-#define RTC_ALARM_TIME_ADDR                 0x1A
-#define RTC_ALARM_DATE_ADDR                 0x1B
-#define RTC_TIMER_CTRL_ADDR                 0x20
-#define RTC_TIMER_INIT_ADDR                 0x21
-#define RTC_TIMER_VALUE_ADDR                0x22
-#define RTC_CLKIN_DIV_ADDR                  0x28
-#define RTC_REF_CLK_CONF_ADDR               0x2A
-#define RTC_TEST_ADDR                       0x30
-
-/*! @name SR - RTC Status register */
-#define RTC_SR_INT_RTC_MASK                 (0x1U)
-#define RTC_SR_INT_RTC_SHIFT                (0U)
-#define RTC_SR_INT_RTC(x)                   (((uint32_t)(((uint32_t)(x))/* << RTC_SR_INT_RTC_SHIFT*/)) & RTC_SR_INT_RTC_MASK)
-
-/*! @name CR - RTC Control register */
-#define RTC_CR_STANDBY_MASK                  (0x1U)
-#define RTC_CR_STANDBY_SHIFT                 (0U)
-#define RTC_CR_STANDBY(x)                    (((uint32_t)(((uint32_t)(x))/* << RTC_CR_STANDBY_SHIFT*/)) & RTC_CR_STANDBY_MASK)
-#define RTC_CR_CALIBRATION_EN_MASK           (0x10U)
-#define RTC_CR_CALIBRATION_EN_SHIFT          (4U)
-#define RTC_CR_CALIBRATION_EN(x)             (((uint32_t)(((uint32_t)(x)) << RTC_CR_CALIBRATION_EN_SHIFT)) & RTC_CR_CALIBRATION_EN_MASK)
-#define RTC_CR_SOFT_RST_MASK                 (0x100U)
-#define RTC_CR_SOFT_RST_SHIFT                (8U)
-#define RTC_CR_SOFT_RST(x)                   (((uint32_t)(((uint32_t)(x)) << RTC_CR_SOFT_RST_SHIFT)) & RTC_CR_SOFT_RST_MASK)
-
-/*! @name CCR - RTC Clock Control register */
-#define RTC_CCR_CKOUT_STANDBY_MASK           (0x1U)
-#define RTC_CCR_CKOUT_STANDBY_SHIFT          (0U)
-#define RTC_CCR_CKOUT_STANDBY(x)             (((uint32_t)(((uint32_t)(x))/* << RTC_CCR_CKOUT_STANDBY_SHIFT*/)) & RTC_CCR_CKOUT_STANDBY_MASK)
-#define RTC_CCR_DIV_AUTOCAL_MASK             (0x1000U)
-#define RTC_CCR_DIV_AUTOCAL_SHIFT            (12U)
-#define RTC_CCR_DIV_AUTOCAL(x)               (((uint32_t)(((uint32_t)(x)) << RTC_CCR_DIV_AUTOCAL_SHIFT)) & RTC_CCR_DIV_AUTOCAL_MASK)
-#define RTC_CCR_DIV_COMP_MASK                (0x1F0000U)
-#define RTC_CCR_DIV_COMP_SHIFT               (16U)
-#define RTC_CCR_DIV_COMP(x)                  (((uint32_t)(((uint32_t)(x)) << RTC_CCR_DIV_COMP_SHIFT)) & RTC_CCR_DIV_COMP_MASK)
-
-/*! @name ICR - RTC IRQ Control register */
-/*
-  00  INT_RTC high;
-  01  INT_RTC low;
-  10; INT_RTC high pulse with duration of 1 CKIN cycle
-  11; INT_RTC low pulse with duration of 1 CKIN cycle
-*/
-#define RTC_ICR_FORM_MASK                    (0x3U)
-#define RTC_ICR_FORM_SHIFT                   (0U)
-#define RTC_ICR_FORM(x)                      (((uint32_t)(((uint32_t)(x))/* << RTC_ICR_FORM_SHIFT*/)) & RTC_ICR_FORM_MASK)
-
-/*! @name IMR - RTC IRQ MASK register */
-#define RTC_IMR_ALARM_MASK                   (0x1U)
-#define RTC_IMR_ALARM_SHIFT                  (0U)
-#define RTC_IMR_ALARM(x)                     (((uint32_t)(((uint32_t)(x))/* << RTC_IMR_ALARM_SHIFT*/)) & RTC_IMR_ALARM_MASK)
-#define RTC_IMR_TIMER_MASK                   (0x10U)
-#define RTC_IMR_TIMER_SHIFT                  (4U)
-#define RTC_IMR_TIMER(x)                     (((uint32_t)(((uint32_t)(x)) << RTC_IMR_TIMER_SHIFT)) & RTC_IMR_TIMER_MASK)
-#define RTC_IMR_CALIBRATION_MASK             (0x1000U)
-#define RTC_IMR_CALIBRATION_SHIFT            (12U)
-#define RTC_IMR_CALIBRATION(x)               (((uint32_t)(((uint32_t)(x)) << RTC_IMR_CALIBRATION_SHIFT)) & RTC_IMR_CALIBRATION_MASK)
-
-/*! @name IFR - RTC IRQ Flag register */
-#define RTC_IFR_ALARM_MASK                   (0x1U)
-#define RTC_IFR_ALARM_SHIFT                  (0U)
-#define RTC_IFR_ALARM(x)                     (((uint32_t)(((uint32_t)(x))/* << RTC_IFR_ALARM_SHIFT*/)) & RTC_IFR_ALARM_MASK)
-#define RTC_IFR_TIMER_MASK                   (0x10U)
-#define RTC_IFR_TIMER_SHIFT                  (4U)
-#define RTC_IFR_TIMER(x)                     (((uint32_t)(((uint32_t)(x)) << RTC_IFR_TIMER_SHIFT)) & RTC_IFR_TIMER_MASK)
-#define RTC_IFR_CALIBRATION_MASK             (0x1000U)
-#define RTC_IFR_CALIBRATION_SHIFT            (12U)
-#define RTC_IFR_CALIBRATION(x)               (((uint32_t)(((uint32_t)(x)) << RTC_IFR_CALIBRATION_SHIFT)) & RTC_IFR_CALIBRATION_MASK)
-
-/*! @name CALENDAR CTRL - RTC CALENDAR Control register */
-#define RTC_CALENDAR_CTRL_STANDBY_MASK       (0x1U)
-#define RTC_CALENDAR_CTRL_STANDBY_SHIFT      (0U)
-#define RTC_CALENDAR_CTRL_STANDBY(x)         (((uint32_t)(((uint32_t)(x))/* << RTC_CALENDAR_CTRL_STANDBY_SHIFT*/)) & RTC_CALENDAR_CTRL_STANDBY_MASK)
-
-/*! @name ALARM_CTRL - RTC Alarm control register */
-#define RTC_ALARM_CTRL_STANDBY_MASK           (0x1U)
-#define RTC_ALARM_CTRL_STANDBY_SHIFT          (0U)
-#define RTC_ALARM_CTRL_STANDBY(x)             (((uint32_t)(((uint32_t)(x))/* << RTC_ALARM_CTRL_STANDBY_SHIFT*/)) & RTC_ALARM_CTRL_STANDBY_MASK)
-#define RTC_ALARM_CTRL_MODE_MASK              (0x10U)
-#define RTC_ALARM_CTRL_MODE_SHIFT             (4U)
-#define RTC_ALARM_CTRL_MODE(x)                (((uint32_t)(((uint32_t)(x)) << RTC_ALARM_CTRL_MODE_SHIFT)) & RTC_ALARM_CTRL_MODE_MASK)
-#define RTC_ALARM_CTRL_CONFIG_MASK            (0xF0000U)
-#define RTC_ALARM_CTRL_CONFIG_SHIFT           (16U)
-#define RTC_ALARM_CTRL_CONFIG(x)              (((uint32_t)(((uint32_t)(x)) << RTC_ALARM_CTRL_CONFIG_SHIFT)) & RTC_ALARM_CTRL_CONFIG_MASK)
-
-/*! @name TIMER - RTC Count down register */
-#define RTC_TIMER_STANDBY_MASK                (0x1U)
-#define RTC_TIMER_STANDBY_SHIFT               (0U)
-#define RTC_TIMER_STANDBY(x)                  (((uint32_t)(((uint32_t)(x))/* << RTC_TIMER_STANDBY_SHIFT*/)) & RTC_TIMER_STANDBY_MASK)
-#define RTC_TIMER_MODE_MASK                   (0x10U)
-#define RTC_TIMER_MODE_SHIFT                  (4U)
-#define RTC_TIMER_MODE(x)                     (((uint32_t)(((uint32_t)(x)) << RTC_TIMER_MODE_SHIFT)) & RTC_TIMER_MODE_MASK)
-
-/*! @name CLKIN_DIV - RTC Clock in divider register */
-#define RTC_CLKIN_DIV_VAL_MASK                (0xFFFFU)
-#define RTC_CLKIN_DIV_VAL_SHIFT               (0U)
-#define RTC_CLKIN_DIV_VAL(x)                  (((uint32_t)(((uint32_t)(x))/* << RTC_CLKIN_DIV_VAL_SHIFT*/)) & RTC_CLKIN_DIV_VAL_MASK)
-
-/*! @name CKREF_CONF - RTC Reference Clock configuration */
-#define RTC_CKREF_CONF_VAL_MASK               (0x3FFFFFU)
-#define RTC_CKREF_CONF_VAL_SHIFT              (0U)
-#define RTC_CKREF_CONF_VAL(x)                 (((uint32_t)(((uint32_t)(x))/* << RTC_CKREF_CONF_VAL_SHIFT*/)) & RTC_CKREF_CONF_VAL_MASK)
-
-
-/*!
- * @}
- */ /* end of group RTC_Register_Masks */
-
-
-
-/* RTC_APB - Peripheral instance base addresses */
-/** Peripheral RTC_APB base address */
-#define RTC_APB_BASE                               (SOC_PERI_BASE + 0x08000u)
-/** Peripheral RTC_APB base pointer */
-#define RTC_APB                                    ((RTC_APB_Type *)RTC_APB_BASE)
-/** Array initializer of RTC_APB base addresses */
-#define RTC_APB_BASE_ADDRS                         { RTC_APB_BASE }
-/** Array initializer of RTC_APB base pointers */
-#define RTC_APB_BASE_PTRS                          { RTC_APB }
-
-/*!
- * @}
- */ /* end of group RTC_APB_Peripheral_Access_Layer */
+#include "periph/rtc_periph.h"
+#define rtc(id) ((rtc_t *) RTC_ADDR)
 
 
 /* ----------------------------------------------------------------------------
@@ -1645,51 +1173,35 @@ typedef struct {
  * @{
  */
 
-/** EFUSE_CTRL - Register Layout Typedef */
-typedef struct {
-  __O  uint32_t CMD;                       /**< EFUSE_Control register, offset: 0x00 */
-  __O  uint32_t CFG;                       /**< EFUSE_Control register, offset: 0x04 */
-} EFUSE_CTRL_Type;
 
-/* ----------------------------------------------------------------------------
-   -- EFUSE_CTRL Register Masks
-   ---------------------------------------------------------------------------- */
-/*! @name CFG - EFUSE control configure register */
-#define EFUSE_CTRL_SHORT_MASK                           (0x3FFU)
-#define EFUSE_CTRL_SHORT_SHIFT                          (0U)
-#define EFUSE_CTRL_SHORT(x)                             (((uint32_t)(((uint32_t)(x)) /* << EFUSE_CTRL_SHORT_SHIFT */)) & EFUSE_CTRL_SHORT_MASK)
 
-#define EFUSE_CTRL_MEDIUM_MASK                          (0xFFC00U)
-#define EFUSE_CTRL_MEDIUM_SHIFT                         (10U)
-#define EFUSE_CTRL_MEDIUM(x)                            (((uint32_t)(((uint32_t)(x)) << EFUSE_CTRL_MEDIUM_SHIFT)) & EFUSE_CTRL_MEDIUM_MASK)
-
-#define EFUSE_CTRL_LONG_MASK                            (0x3FF00000U)
-#define EFUSE_CTRL_LONG_SHIFT                           (20U)
-#define EFUSE_CTRL_LONG(x)                              (((uint32_t)(((uint32_t)(x)) << EFUSE_CTRL_LONG_SHIFT)) & EFUSE_CTRL_LONG_MASK)
-
-/*!
- * @addtogroup EFUSE_CTRL_Register_Masks EFUSE_CTRL Register Masks
- * @{
- */
-#define    EFUSE_CTRL_CMD_READ       0x1
-#define    EFUSE_CTRL_CMD_WRITE      0x2
-#define    EFUSE_CTRL_CMD_SLEEP      0x4
-/*!
- * @}
- */ /* end of group EFUSE_CTRL_Register_Masks */
-
+#include "periph/efuse_periph.h"
 
 /* EFUSE_CTRL - Peripheral instance base addresses */
 /** Peripheral EFUSE_CTRL base address */
 #define EFUSE_CTRL_BASE                               (SOC_PERI_BASE + 0x09000u)
 /** Peripheral EFUSE_CTRL base pointer */
-#define EFUSE_CTRL                                    ((EFUSE_CTRL_Type *)EFUSE_CTRL_BASE)
+#define efuse_ctrl                                    ((efuse_ctrl_t *)EFUSE_CTRL_BASE)
 /** Array initializer of EFUSE_CTRL base addresses */
 #define EFUSE_CTRL_BASE_ADDRS                         { EFUSE_CTRL_BASE }
 /** Array initializer of EFUSE_CTRL base pointers */
 #define EFUSE_CTRL_BASE_PTRS                          { EFUSE_CTRL }
 
 /*!
+ * @}
+ */ /* end of group EFUSE_CTRL_Peripheral_Access_Layer */
+
+
+/* EFUSE_REGS - Peripheral instance base addresses */
+/** Peripheral EFUSE_REGS base address */
+#define EFUSE_REGS_BASE                                (SOC_PERI_BASE + 0x09200u)
+/** Peripheral EFUSE_REGS base pointer */
+#define efuse_regs                                     ((efuse_regs_t *)EFUSE_REGS_BASE)
+#define efuse_regs_array                               ((int32_t*)EFUSE_REGS_BASE)
+/** Array initializer of EFUSE_REGS base addresses */
+#define EFUSE_REGS_BASE_ADDRS                          { EFUSE_REGS_BASE }
+/** Array initializer of EFUSE_REGS base pointers */
+#define EFUSE_REGS_BASE_PTRS                           { EFUSE_REGS }/*!
  * @}
  */ /* end of group EFUSE_CTRL_Peripheral_Access_Layer */
 

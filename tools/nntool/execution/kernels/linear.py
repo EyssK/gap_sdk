@@ -1,8 +1,17 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 
@@ -70,7 +79,7 @@ def linear(params, in_dims, out_dims, in_tensor, weights, biases,
                         "accumulation overflow in linear OutC=%d",
                         out_c)
             if qrec.calc_q != qrec.acc_q:
-                return qrec.acc_q.reduce_from(acc_tensor, qrec.calc_q)
+                acc_tensor = qrec.acc_q.reduce_from(acc_tensor, qrec.calc_q)
         elif details is not None:
             details['min_acc'] = min(np.min(acc_slice), details['min_acc'])
             details['max_acc'] = max(np.max(acc_slice), details['max_acc'])

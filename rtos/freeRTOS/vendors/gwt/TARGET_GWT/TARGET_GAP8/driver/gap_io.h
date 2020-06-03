@@ -31,10 +31,10 @@
 #ifndef _GAP_IO_H_
 #define _GAP_IO_H_
 
-#include "gap_util.h"
+#include "printf.h"
 
-/*!
- * @addtogroup io
+/**
+ * \addtogroup io
  * @{
  */
 
@@ -42,36 +42,28 @@
  * Definitions
  ******************************************************************************/
 
-/*! @brief uDMA transfer task stucture */
-
-
 /*******************************************************************************
  * API
  ******************************************************************************/
-#if defined(__cplusplus)
-extern "C" {
-#endif /* __cplusplus */
-
-/*!
- * @brief printf
+/**
+ * \brief Initialize printf via uart.
  *
- * @note .
+ * This function initializes a UART device to enable printing through it.
+ *
+ * \note Printf via uart is only available once scheduler has started. Otherwise
+ * the output will be through debug_bridge.
  */
-int GAP_IMPORT printf(const char *format, ...);
-int GAP_IMPORT puts(const char *s);
-int sprintf(char *str, const char *format, ...);
-void uart_putc(char  c);
-void abort();
 
-void printf_uart_init(void);
+void printf_uart_init(uint8_t uart_id);
 
-
-/* @} */
-
-#if defined(__cplusplus)
-}
-#endif /* __cplusplus */
+/**
+ * \brief Flush printf buffer before exit.
+ *
+ * This function is called before leaving platform/interrupting runtime to flush
+ * current output buffer if it has been filled.
+ */
+void system_exit_printf_flush();
 
 /* @} */
 
-#endif /*_GAP_IO_H_*/
+#endif  /*_GAP_IO_H_*/

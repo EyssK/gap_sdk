@@ -31,8 +31,7 @@
 #ifndef _GAP_HANDLER_HELPER_H_
 #define _GAP_HANDLER_HELPER_H_
 
-#include "../device/gap_device_registers.h"
-#include "gap_util.h"
+#include "pmsis/targets/target.h"
 
 /*!
  * @addtogroup handler_wrapper

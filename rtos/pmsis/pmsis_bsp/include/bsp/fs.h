@@ -17,7 +17,15 @@
 #ifndef __FS__FS__H__
 #define __FS__FS__H__
 
+#include "stdbool.h"
+
 #include "pmsis.h"
+
+/// @cond IMPLEM
+
+typedef struct __pi_fs_api_t pi_fs_api_t;
+
+/// @endcond
 
 /**
  * @defgroup FS File-System
@@ -46,8 +54,22 @@
  * This can be used to select the type of file-system to mount.
  */
 typedef enum {
-  PI_FS_READ_ONLY     = 0     /*!< Read-only file system. */
+  PI_FS_READ_ONLY     = 0,    /*!< Read-only file system. */
+  PI_FS_HOST          = 1,     /*!< Host file system. */
+  PI_FS_LFS           = 2,     /*!< LittleFS Filesystem. */
 } pi_fs_type_e;
+
+
+
+/** \enum pi_fs_flags_e
+ * \brief File-system open flags.
+ *
+ * This can be used to select the type of file-system to mount.
+ */
+typedef enum {
+  PI_FS_FLAGS_READ     = 0,    /*!< File is opened for reading. */
+  PI_FS_FLAGS_WRITE    = 1     /*!< File is opened for writing. */
+} pi_fs_flags_e;
 
 
 
@@ -61,6 +83,14 @@ struct pi_fs_conf {
   pi_fs_type_e type;        /*!< File-system type. */
   struct pi_device *flash;  /*!< Flash device. The flash device must be first
     opened and its device structure passed here. */
+  char *partition_name; /*!< useful if there are several partitions of this FS type.
+    By default this field is set to null, which allows to find the first partition compatible with this type of FS. */
+  bool auto_format;     /*!< Defined the behavior of the mount operation in case the file system could not be found in the partition.
+    if auto_format is set to false, An error is returned .
+    In the opposite case, if auto_format is set to true, the partition will be formated and ready to use.
+    Not available in ReadFS.  */
+  pi_fs_api_t *api;    /*!< Pointer to specific FS methods. Reserved for
+    internal runtime usage. */
 };
 
 /** \brief FS file structure.
@@ -154,6 +184,26 @@ void pi_fs_close(pi_fs_file_t *file);
  */
 int32_t pi_fs_read(pi_fs_file_t *file, void *buffer, uint32_t size);
 
+/** \brief Write data to a file.
+ *
+ * This function can be called to write data to an opened file. The data is
+ * written to the current position which is the beginning of the file when the
+ * file is opened. The current position is incremented by the number of
+ * bytes written by the call to this function.
+ * This functionmay not be supported by each file-system.
+ * The caller is blocked until the transfer is finished.
+ * Depending on the chip, there may be some restrictions on the memory which
+ * can be used. Check the chip-specific documentation for more details.
+ *
+ * \param file      The handle of the file where to write data.
+ * \param buffer    The memory location where the data to be written must be
+ *                  read.
+ * \param size      The size in bytes to write to the file.
+ * \return          The number of bytes actually written to the file. This can
+ *   be smaller than the requested size if the end of file is reached.
+ */
+int32_t pi_fs_write(pi_fs_file_t *file, void *buffer, uint32_t size);
+
 /** \brief Read data from a file with no intermediate cache.
  *
  * This function can be called to read data from an opened file. The data is
@@ -224,7 +274,7 @@ int32_t pi_fs_copy(pi_fs_file_t *file, uint32_t index, void *buffer,
  * \param size      The size in bytes to transfer.
  * \param stride      2D stride, which is the number of bytes which are added
  *   to the beginning of the current line to switch to the next one.
- * \param length      2D length, which is the number of transfered bytes after
+ * \param length      2D length, which is the number of transferred bytes after
  *   which the driver will switch to the next line.
  * \param ext2loc   1 if the copy is from file to the chip or 0 for the
  *   contrary.
@@ -255,6 +305,30 @@ int32_t pi_fs_copy_2d(pi_fs_file_t *file, uint32_t index, void *buffer,
  *   be smaller than the requested size if the end of file is reached.
  */
 int32_t pi_fs_read_async(pi_fs_file_t *file, void *buffer, uint32_t size,
+  pi_task_t *task);
+
+/** \brief Write data to a file asynchronously.
+ *
+ * This function can be called to write data to an opened file. The data is
+ * written to the current position which is the beginning of the file when the
+ * file is opened. The current position is incremented by the number of
+ * bytes written by the call to this function.
+ * This functionmay not be supported by each file-system.
+ * A task must be specified in order to specify how the caller should be
+ * notified when the transfer is finished.
+ * Depending on the chip, there may be some restrictions on the memory which
+ * can be used. Check the chip-specific documentation for more details.
+ *
+ * \param file      The handle of the file where to write data.
+ * \param buffer    The memory location where the data to be written must be
+ *                  written.
+ * \param size      The size in bytes to write to the file.
+ * \param task      The task used to notify the end of transfer.
+   See the documentation of pi_task_t for more details.
+ * \return          The number of bytes actually written to the file. This can
+ *   be smaller than the requested size if the end of file is reached.
+ */
+int32_t pi_fs_write_async(pi_fs_file_t *file, void *buffer, uint32_t size,
   pi_task_t *task);
 
 /** \brief Read data from a file with no intermediate cache asynchronously.
@@ -319,7 +393,7 @@ int32_t pi_fs_copy_async(pi_fs_file_t *file, uint32_t index, void *buffer,
  * \param size      The size in bytes to transfer.
  * \param stride      2D stride, which is the number of bytes which are added
  *   to the beginning of the current line to switch to the next one.
- * \param length      2D length, which is the number of transfered bytes after
+ * \param length      2D length, which is the number of transferred bytes after
  *   which the driver will switch to the next line.
  * \param ext2loc   1 if the copy is from file to the chip or 0 for the
  *   contrary.
@@ -437,7 +511,7 @@ void pi_cl_fs_copy(pi_fs_file_t *file, uint32_t index, void *buffer,
  * \param size      The size in bytes to transfer.
  * \param stride      2D stride, which is the number of bytes which are added
  *   to the beginning of the current line to switch to the next one.
- * \param length      2D length, which is the number of transfered bytes after
+ * \param length      2D length, which is the number of transferred bytes after
  *   which the driver will switch to the next line.
  * \param ext2loc   1 if the copy is from file to the chip or 0 for the
  *   contrary.
@@ -469,47 +543,34 @@ static inline int32_t pi_cl_fs_wait(pi_cl_fs_req_t *req);
 
 /// @cond IMPLEM
 
+struct __pi_fs_api_t {
+    int32_t (*mount)(struct pi_device *device);
+    void (*unmount)(struct pi_device *device);
+    pi_fs_file_t *(*open)(struct pi_device *device, const char *file, int flags);
+    void (*close)(pi_fs_file_t *file);
+    int32_t (*read)(pi_fs_file_t *file, void *buffer, uint32_t size, pi_task_t *task);
+    int32_t (*direct_read)(pi_fs_file_t *file, void *buffer, uint32_t size, pi_task_t *task);
+    int32_t (*write)(pi_fs_file_t *file, void *buffer, uint32_t size, pi_task_t *task);
+    int32_t (*seek)(pi_fs_file_t *file, unsigned int offset);
+    int32_t (*copy)(pi_fs_file_t *file, uint32_t index, void *buffer, uint32_t size, int32_t ext2loc, pi_task_t *task);
+    int32_t (*copy_2d)(pi_fs_file_t *file, uint32_t index, void *buffer, uint32_t size, uint32_t stride, uint32_t length, int32_t ext2loc, pi_task_t *task);
+};
+
+extern pi_fs_api_t __pi_read_fs_api;
+extern pi_fs_api_t __pi_host_fs_api;
+extern pi_fs_api_t pi_lfs_api;
+
 typedef struct pi_fs_file_s {
-  unsigned int offset;
-  unsigned int size;
-  unsigned int addr;
-  unsigned int pending_addr;
   struct pi_device *fs;
-  pi_task_t *pending_event;
-  pi_task_t step_event;
-  unsigned int pending_buffer;
-  unsigned int pending_size;
-  unsigned char *cache;
-  unsigned int  cache_addr;
+  pi_fs_api_t *api;
+  void *data;
+  unsigned int size;
 } pi_fs_file_t;
 
 typedef enum {
   FS_MOUNT_FLASH_ERROR     = 1,     /*!< There was an error mounting the flash filesystem. */
   FS_MOUNT_MEM_ERROR       = 2      /*!< There was an error allocating memory when mounting the file-system. */
 } pi_fs_error_e;
-
-typedef struct pi_fs_l2_s
-{
-  uint32_t pi_fs_offset;
-  uint32_t reserved0;
-  uint32_t pi_fs_size;
-  uint32_t reserved1;
-} pi_fs_l2_t;
-
-typedef struct pi_fs_s
-{
-  struct pi_device *flash;
-  pi_task_t step_event;
-  pi_task_t *pending_event;
-  int mount_step;
-  int pi_fs_size;
-  pi_fs_l2_t *pi_fs_l2;
-  unsigned int *pi_fs_info;
-  int nb_comps;
-  //rt_mutex_t mutex;
-  pi_task_t event;
-  int error;
-} pi_fs_t;
 
 
 typedef struct pi_cl_fs_req_s
@@ -531,14 +592,7 @@ typedef struct pi_cl_fs_req_s
 
 static inline __attribute__((always_inline)) int32_t pi_cl_fs_wait(pi_cl_fs_req_t *req)
 {
-    #if defined(PMSIS_DRIVERS)
     cl_wait_task(&(req->done));
-    #else
-    while((*(volatile char *)&req->done) == 0)
-    {
-        eu_evt_maskWaitAndClr(1<<RT_CLUSTER_CALL_EVT);
-    }
-    #endif  /* PMSIS_DRIVERS */
     return req->result;
 }
 

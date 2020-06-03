@@ -6,6 +6,7 @@ PACKAGES=build/packages
 FLAT_SRC=$(PACKAGES)/flatbuffers
 FLAT_BUILD=$(FLAT_SRC)/build
 TFLITE_DIR=importer/tflite
+FLAT_TAG=de89bd193370c8b33686f1f33edd63593e48cd3f
 
 all: flatbuffers tflite req
 
@@ -19,7 +20,7 @@ $(PACKAGES): build
 	mkdir -p $@
 
 build/.flatbuffers_clone: $(PACKAGES)
-	(cd $(PACKAGES); git clone https://github.com/google/flatbuffers.git)
+	(cd $(PACKAGES); git clone https://github.com/google/flatbuffers.git; cd flatbuffers; git checkout $(FLAT_TAG))
 	touch build/.flatbuffers_clone
 
 $(FLAT_BUILD): build/.flatbuffers_clone

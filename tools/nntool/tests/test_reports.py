@@ -1,12 +1,21 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
 from importer.importer import create_graph
-from quantization.simple_quantizer import SimpleQuantizer
+from quantization.symmetric.symmetric_quantizer import SymmetricQuantizer
 from reports.activation_reporter import ActivationReporter
 from reports.error_reporter import ErrorReporter
 from reports.filter_reporter import (FilterDetailedStatsReporter,
@@ -34,7 +43,7 @@ def test_activation_report(mnist_graph, mnist_images):
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))
 
-def test_filter_report(mnist_graph, mnist_images):
+def test_filter_report(mnist_graph):
     G = create_graph(mnist_graph, opts={"load_tensors":True})
     G.add_dimensions()
     stats_collector = FilterStatsCollector()
@@ -43,7 +52,7 @@ def test_filter_report(mnist_graph, mnist_images):
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))
 
-def test_filter_detailed_report(mnist_graph, mnist_images):
+def test_filter_detailed_report(mnist_graph):
     G = create_graph(mnist_graph, opts={"load_tensors":True})
     G.add_dimensions()
     stats_collector = FilterDetailedStatsCollector()
@@ -52,8 +61,8 @@ def test_filter_detailed_report(mnist_graph, mnist_images):
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))
 
-def test_error_report(value_cache, mnist_unfused_8bit_state, mnist_images):
-    G = load_state(mnist_unfused_8bit_state, value_cache=value_cache)
+def test_error_report(mnist_unfused_8bit_state, mnist_images):
+    G = load_state(mnist_unfused_8bit_state)
     G.add_dimensions()
     input_tensor = import_data(mnist_images[0], height=28, width=28, offset=0, divisor=255)
     input_tensor = input_tensor.reshape((28, 28, 1))
@@ -64,7 +73,7 @@ def test_error_report(value_cache, mnist_unfused_8bit_state, mnist_images):
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))
 
-def test_temps_report(mnist_graph, mnist_images):
+def test_temps_report(mnist_graph):
     G = create_graph(mnist_graph, opts={"load_tensors":True})
     G.add_dimensions()
     stats_collector = TempsStatsCollector()
@@ -73,8 +82,8 @@ def test_temps_report(mnist_graph, mnist_images):
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))
 
-def test_temps_report_quantized(value_cache, mnist_unfused_8bit_state):
-    G = load_state(mnist_unfused_8bit_state, value_cache=value_cache)
+def test_temps_report_quantized(mnist_unfused_8bit_state):
+    G = load_state(mnist_unfused_8bit_state)
     G.add_dimensions()
     stats_collector = TempsStatsCollector(qrecs=G.quantization)
     stats = stats_collector.collect_stats(G)
@@ -99,9 +108,9 @@ def test_simple_quantization(mnist_graph, mnist_images):
     astats = stats_collector.reduce_stats()
     stats_collector = FilterStatsCollector()
     fstats = stats_collector.collect_stats(G)
-    quantizer = SimpleQuantizer(astats, fstats, force_width=8)
+    quantizer = SymmetricQuantizer(astats, fstats, force_width=8)
     qrecs = quantizer.quantize(G)
-    assert len(qrecs) == 10
+    assert len(qrecs) == 11 # One more for saved quantizer
     report = QuantizationReporter().report(G, qrecs)
     renderer = TextTableRenderer(maxwidth=200)
     print(report.render(renderer))

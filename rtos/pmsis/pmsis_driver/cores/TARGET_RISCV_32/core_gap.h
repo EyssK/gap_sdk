@@ -1093,6 +1093,25 @@ typedef struct
     __O uint32_t DIRECTION;
 } DMAMCHAN_COMPRESSOR_Type;
 
+typedef struct {
+    __O uint32_t TCDM_ADDR;
+    __O uint32_t L2_ADDR;
+    __O uint32_t CONF_REG;
+    __I uint32_t STAT_REG;
+    __O uint32_t LUT_REG;
+    __O uint32_t SYMBOL_REG;
+    __O uint32_t BIT_READ_REG;
+    __O uint32_t MODE_REG;
+    __O uint32_t SW_RST_REG;
+    __O uint32_t CLKEN_REG;
+    __O uint32_t TRIGGER_REG;
+    __IOM uint32_t PAD0;
+    __O uint32_t L2_COUNT_REG;
+    __O uint32_t L2_STRIDE_REG;
+    __O uint32_t TCDM_COUNT_REG;
+    __O uint32_t TCDM_STRIDE_REG;
+} decompressor_t;
+
 /**
   \ingroup    CMSIS_core_register
   \defgroup   CMSIS_core_base     Core Definitions
@@ -1196,7 +1215,7 @@ typedef struct
 #define EU_SW_EVENTS_DEMUX  ((EU_SW_EVENTS_DEMUX_Type   *) CORE_EU_SW_EVENTS_DEMUX_BASE)    /*!< EU_SW_EVENTS_DEMUX configuration struct */
 #define EU_BARRIER_DEMUX(id) ((EU_BARRIER_DEMUX_Type   *)   (CORE_EU_BARRIER_DEMUX_BASE+(id*sizeof(EU_BARRIER_DEMUX_Type))))      /*!< EU_BARRIER_DEMUX configuration struct */
 #define DMAMCHAN            ((DMAMCHAN_Type   *)   CORE_MCHAN_BASE)                              /*!< MCHAN DMA configuration struct */
-#define DMAMCHAN_COMPRESSOR ((DMAMCHAN_COMPRESSOR_Type *) CORE_MCHAN_COMPRESSOR_BASE)
+#define DMAMCHAN_COMPRESSOR ((decompressor_t *) CORE_MCHAN_COMPRESSOR_BASE)
 
 #define FC_EU_SW_EVENTS      ((EU_SW_EVENTS_DEMUX_Type   *)  FC_EU_SW_EVENTS_BASE)            /*!< EU_SW_EVENTS_DEMUX configuration struct */
 
@@ -1399,12 +1418,16 @@ __STATIC_INLINE void __NVIC_SetVector(IRQn_Type IRQn, uint32_t vector)
   volatile uint32_t *vectors;
 
   if((__get_CPRIV() & CPRIV_PRIV_Msk) != 0U) {
+#if defined(__GAP8__)
     vectors = (uint32_t *)(__builtin_pulp_spr_read(0x305));
+#elif defined(__GAP9__)
+    vectors = (uint32_t *)(__builtin_pulp_spr_read(0x305) & ~0x1);
+#endif
   } else {
 #if defined(__GAP8__)
     vectors = (uint32_t *)(0x1C000000);
 #elif defined(__GAP9__)
-    vectors = (uint32_t *)(__builtin_pulp_spr_read(0x005));
+    vectors = (uint32_t *)(__builtin_pulp_spr_read(0x005) & ~0x1);
 #endif
   }
   vectors[IRQn] = __NVIC_ForgeItVect((uint32_t)vectors, IRQn, vector);

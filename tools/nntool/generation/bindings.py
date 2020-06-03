@@ -1,13 +1,19 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from abc import ABC, abstractmethod
-
-from .code_generators import (gen_gnode_arg, gen_imm_arg, gen_at_bindings,
-                              gen_at_func_bindings, gen_g_arg)
 
 TT_TENSOR_TYPES = {
     'TT_INPUT': 0,
@@ -16,12 +22,44 @@ TT_TENSOR_TYPES = {
     'TT_BIASES': 3
 }
 
+def gen_gnode_arg(direction, name):
+    return 'GNodeArg({}, "{}", 0)'.format(direction, name)
+
+
+def gen_g_arg(name):
+    return 'GArg("{}")'.format(name)
+
+
+def gen_g_node_c_arg(name):
+    return 'GNodeCArg("{}")'.format(name)
+
+
+def gen_imm_arg(symbol):
+    return "Imm({})".format(symbol)
+
+
+def gen_at_bindings(name, binding_list, code_block):
+    code_block.write('AddNode("{0}", Bindings({1}, {2}));'
+                     .format(name, len(binding_list), ", ".join(binding_list)))
+
+
+def gen_at_func_bindings(name, func_name, where, binding_list, code_block):
+    code_block.write('AddCallToNode("{0}", {1}, "{2}", Bindings({3}, {4}));'
+                     .format(name, where, func_name, len(binding_list), ", ".join(binding_list)))
+
 class Binding(ABC):
     @abstractmethod
     def gen_binding(self, generator):
         pass
 
 # pylint: disable=abstract-method
+class InfoListName(Binding):
+    def __init__(self, cname):
+        self.cname = cname
+
+    def gen_binding(self, generator):
+        return "{}_infos".format(self.cname)
+
 class GNodeArg(Binding):
     def __init__(self, direction):
         self.direction = direction
@@ -31,7 +69,7 @@ class GArgEdge(Binding):
         self.eparams = eparams
 
     def gen_binding(self, generator):
-        return gen_g_arg(generator.get_edge_name(self.eparams))
+        return gen_g_node_c_arg(generator.get_edge_name(self.eparams))
 
 class GArgNode(Binding):
     def __init__(self, node, target):
@@ -39,7 +77,7 @@ class GArgNode(Binding):
         self.target = target
 
     def gen_binding(self, generator):
-        return gen_g_arg(generator.get_node_name(self.node, self.target))
+        return gen_g_node_c_arg(generator.get_node_name(self.node, self.target))
 
 class GNodeArgEdge(GNodeArg):
     def __init__(self, eparams, direction="GNA_IN"):
@@ -70,6 +108,14 @@ class BindingList(ABC):
     def gen_bindings(self, generator, code_block):
         pass
 
+class InfosList(BindingList):
+    def __init__(self, cname, infos):
+        self.cname = cname
+        self.infos = infos
+
+    def gen_bindings(self, _, code_block):
+        code_block.write("char {}_infos[] = {{{}}};".format(self.cname, ", ".join(self.infos)))
+
 class CommentBindingList(BindingList):
     def __init__(self, fmt, *args, **kwargs):
         self.comment = fmt.format(*args, **kwargs)
@@ -99,5 +145,3 @@ class FunctionBindingList(NodeBindingList):
                              self.where,
                              [binding.gen_binding(generator) for binding in self.binding_list],
                              code_block)
-
-    

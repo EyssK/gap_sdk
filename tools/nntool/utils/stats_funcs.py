@@ -1,8 +1,17 @@
-# Copyright (C) 2019 GreenWaves Technologies
-# All rights reserved.
+# Copyright (C) 2020  GreenWaves Technologies, SAS
 
-# This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import math
 
@@ -12,33 +21,41 @@ from quantization.qtype import QType
 
 STATS_BITS = [8, 16, 32]
 
-def bits(min_num, max_num):
-    num = math.floor(max(math.fabs(min_num), math.fabs(max_num))+0.5)
-    if num:
-        return math.ceil(math.log(num) / math.log(2)) + 2
-    return 1
+def range_twos_complement(bits):
+    return (math.pow(-2, bits - 1), math.pow(2, bits - 1) - 1)
 
-def astats(npa, do_bits=True):
-    """Extracts statistics from a tensor
-    """
-    mean = np.mean(npa)
-    std = np.std(npa)
-    amax = np.amax(npa)
-    amin = np.amin(npa)
+def calc_bits(num, signed=True):
+    abs_num = math.floor(math.fabs(num))
+    if num < 0 and abs_num > 0:
+        abs_num -= 1
+    if abs_num == 0:
+        return 1
+    # calculate number of bits to represent absolute number
+    return math.floor(math.log(abs_num) / math.log(2)) + 2
+
+def bits(max_num, min_num, signed=True):
+    assert signed or (max_num >= 0 and min_num >= 0), "numeric error"
+    return max(calc_bits(min_num), calc_bits(max_num))
+
+def do_stat(npa, do_bits=True, channel_dim=None, all_channel_range=None):
+    mean = float(np.mean(npa))
+    std = float(np.std(npa))
+    amax = float(np.amax(npa))
+    amin = float(np.amin(npa))
     quant1_3 = np.quantile(npa, [0.25, 0.75])
     iqr = quant1_3[1] - quant1_3[0]
     weak_min = (npa < quant1_3[0] - 1.5 * iqr)
     weak_max = (npa > quant1_3[1] + 1.5 * iqr)
     strong_min = (npa < quant1_3[0] - 3 * iqr)
     strong_max = (npa > quant1_3[1] + 3 * iqr)
-    weak_count = (weak_min | weak_max).sum()
-    strong_count = (strong_min|strong_max).sum()
+    weak_count = int((weak_min | weak_max).sum())
+    strong_count = int((strong_min|strong_max).sum())
     if weak_count:
-        min_out = np.min(np.abs(npa[weak_min|weak_max]))
+        min_out = float(np.min(np.abs(npa[weak_min|weak_max])))
         if strong_count:
-            max_out = np.max(np.abs(npa[strong_min|strong_max]))
+            max_out = float(np.max(np.abs(npa[strong_min|strong_max])))
         else:
-            max_out = np.max(np.abs(npa[weak_min|weak_max]))
+            max_out = float(np.max(np.abs(npa[weak_min|weak_max])))
     else:
         min_out = max_out = 0
 
@@ -55,6 +72,30 @@ def astats(npa, do_bits=True):
     }
     if do_bits:
         ret['ibits'] = bits(amax, amin)
+    # all_channel_range must not be 0
+    if all_channel_range and npa.size > 1:
+        if channel_dim is not None:
+            # there is no point to this if there is only one item per channel
+            if not all(npa.shape[axis] == 1 if axis != channel_dim else True for axis in range(len(npa.shape))):
+                dims = tuple(dim for dim in range(len(npa.shape)) if dim != channel_dim)
+                ret['avg_prec'] = np.average(np.ptp(npa, axis=dims)/all_channel_range)
+        else:
+            ret['avg_prec'] = np.ptp(npa)/all_channel_range
+
+    return ret
+
+def astats(npa, do_bits=True, channel_dim=None, channel_details=None):
+    """Extracts statistics from a tensor
+    """
+    all_channel_range = np.ptp(npa)
+    ret = do_stat(npa, do_bits=do_bits, channel_dim=channel_dim, all_channel_range=all_channel_range)
+    if channel_details and channel_dim is not None:
+        idx = [slice(None) for dim in npa.shape]
+        channel_data = []
+        for channel in range(npa.shape[channel_dim]):
+            idx[channel_dim] = slice(channel, channel + 1)
+            channel_data.append(do_stat(npa[tuple(idx)], do_bits=True, all_channel_range=all_channel_range))
+        ret['channel_stats'] = channel_data
     return ret
 
 def max_error(orig, quant):
@@ -69,8 +110,11 @@ def qsnr(orig, quant):
     sum_orig = np.sum(orig * orig)
     if sum_err > 0:
         if sum_orig < sum_err:
-            # Means error is larger than signal
-            return -int(round(10 * math.log10(sum_err/sum_orig), 0))
+            if sum_orig == 0:
+                return -math.inf
+            else:
+                # Means error is larger than signal
+                return -int(round(10 * math.log10(sum_err/sum_orig), 0))
         # Error portion of signal
         return int(round(10 * math.log10(sum_orig/sum_err), 0))
     # Means no error
@@ -86,7 +130,7 @@ def calculate_qsnr(npa, bit_size, frac_bits):
     qnpa = (qnpa / 2.0 ** frac_bits)
     return qsnr(npa, qnpa)
 
-def calculate_qsnrs(npa, ideal_ibits, force_ideal=True):
+def calculate_qsnrs(npa, ideal_ibits, force_ideal=False):
     """"Walk away from the ideal whole bit representation to see if
         there is something better around it.
     """
@@ -96,7 +140,7 @@ def calculate_qsnrs(npa, ideal_ibits, force_ideal=True):
         """
         nonlocal store
 
-        if frac_bits < 0 or frac_bits > bit_size:
+        if frac_bits < 0 or frac_bits >= bit_size:
             return -math.inf
         if frac_bits not in store:
             store[frac_bits] = calculate_qsnr(npa, bit_size, frac_bits)
@@ -110,7 +154,7 @@ def calculate_qsnrs(npa, ideal_ibits, force_ideal=True):
 
     for bit_size in STATS_BITS:
 
-        frac_bits = max(bit_size - ideal_ibits, 0)
+        frac_bits = min(max(bit_size - ideal_ibits, 0), bit_size -  1)
 
         if force_ideal:
             get_qsnr(npa, bit_size, frac_bits)

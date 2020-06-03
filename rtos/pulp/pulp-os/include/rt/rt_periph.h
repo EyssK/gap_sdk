@@ -136,6 +136,7 @@ static inline rt_periph_channel_t *__rt_periph_channel(int channel) {
 #if defined(UDMA_VERSION) && UDMA_VERSION < 3
 
 extern RT_FC_TINY_DATA void *__rt_udma_extra_callback[];
+extern RT_FC_TINY_DATA void *__rt_udma_extra_callback_arg[];
 
 #elif defined(UDMA_VERSION) && UDMA_VERSION >= 3
 
@@ -149,6 +150,7 @@ static inline void __rt_udma_register_channel_callback(unsigned int channel, voi
 {
 #if UDMA_VERSION == 2
   __rt_periph_channel(channel)->callback = callback;
+  __rt_periph_channel(channel)->first = arg;
 #else
   __rt_udma_callback[channel>>UDMA_NB_PERIPH_EVENTS_LOG2] = callback;
 #endif
@@ -156,9 +158,22 @@ static inline void __rt_udma_register_channel_callback(unsigned int channel, voi
 
 #if defined(UDMA_VERSION) && UDMA_VERSION < 3
 
-static inline void __rt_udma_register_extra_callback(unsigned int event, void (*callback)(void *), void *arg)
+#include <stdio.h>
+
+static inline void __rt_udma_register_extra_callback_func(unsigned int event, void (*callback)(void *))
 {
   __rt_udma_extra_callback[event - ARCHI_SOC_EVENT_UDMA_FIRST_EXTRA_EVT] = callback;
+}
+
+static inline void __rt_udma_register_extra_callback_arg(unsigned int event, void *arg)
+{
+  __rt_udma_extra_callback_arg[event - ARCHI_SOC_EVENT_UDMA_FIRST_EXTRA_EVT] = arg;
+}
+
+static inline void __rt_udma_register_extra_callback(unsigned int event, void (*callback)(void *), void *arg)
+{
+  __rt_udma_register_extra_callback_func(event, callback);
+  __rt_udma_register_extra_callback_arg(event, arg);
 }
 
 #endif

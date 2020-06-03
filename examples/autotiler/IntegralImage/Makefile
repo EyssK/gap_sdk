@@ -9,18 +9,16 @@ PULP_APP = IntegralImage
 GEN_KER_PATH = $(TILER_GENERATOR_PATH)/IntegralImg
 
 MODEL_SRC = IntegralImgModel.c
-MODEL_GEN = IntegralImgKernels 
+MODEL_GEN = IntegralImgKernels
 MODEL_GEN_C = $(addsuffix .c, $(MODEL_GEN))
 MODEL_GEN_CLEAN = $(MODEL_GEN_C) $(addsuffix .h, $(MODEL_GEN))
 RM=rm -f
 
-PULP_APP_SRCS += main.c ImgIO.c $(MODEL_GEN_C) $(GEN_KER_PATH)/IntegralImgBasicKernels.c
+APP_SRCS   += main.c $(MODEL_GEN_C) $(GEN_KER_PATH)/IntegralImgBasicKernels.c $(GAP_LIB_PATH)/img_io/ImgIO.c
+APP_INC     = $(GAP_LIB_PATH)/include
 
-PULP_CFLAGS += -O3 -mno-memcpy -fno-tree-loop-distribute-patterns $(JENKINS_FLAGS)
-PULP_CFLAGS += -I$(TILER_EMU_INC) -I$(TILER_INC) -I$(GEN_KER_PATH)
-
-
-PLPBRIDGE_FLAGS += -fileIO 10
+APP_CFLAGS += -O3 -mno-memcpy -fno-tree-loop-distribute-patterns $(JENKINS_FLAGS)
+APP_CFLAGS += -I$(TILER_EMU_INC) -I$(TILER_INC) -I$(GEN_KER_PATH)
 
 all:: model
 
@@ -30,7 +28,7 @@ GenTile:
 
 # Run the code generator
 $(MODEL_GEN_C): GenTile
-	./GenTile 
+	./GenTile
 
 model: $(MODEL_GEN_C)
 
@@ -39,5 +37,4 @@ clean::
 
 .PHONY: model clean
 
-include $(GAP_SDK_HOME)/tools/rules/pulp_rules.mk
-
+include $(GAP_SDK_HOME)/tools/rules/pmsis_rules.mk

@@ -5,7 +5,7 @@ import os
 from importer.importer import create_graph
 from utils.data_importer import import_data
 from utils.new_param_state import load_state, dump_state
-from quantization.simple_quantizer import SimpleQuantizer
+from quantization.symmetric.symmetric_quantizer import SymmetricQuantizer
 from stats.activation_stats_collector import ActivationStatsCollector
 from stats.filter_stats_collector import FilterStatsCollector
 
@@ -31,7 +31,7 @@ def test_graph_calc(mnist_graph, mnist_images):
     stats_collector = FilterStatsCollector()
     fstats = stats_collector.collect_stats(G)
 
-    quantizer = SimpleQuantizer(astats, fstats, force_width=8)
+    quantizer = SymmetricQuantizer(astats, fstats, force_width=8)
     qrecs = quantizer.quantize(G)
 
     G.quantization = qrecs
@@ -39,5 +39,9 @@ def test_graph_calc(mnist_graph, mnist_images):
     dump_state(G)
 
     G = load_state(temp_graph)
+
+    for k, v in G.quantization.items():
+        assert v == qrecs[k], "problem with " + str(k)
+
 
     assert G.quantization == qrecs

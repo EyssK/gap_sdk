@@ -1,4 +1,19 @@
-/****************************************************************************/
+/*
+ * Copyright 2019 GreenWaves Technologies, SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "stdio.h"
 
 /* PMSIS includes */
@@ -35,13 +50,12 @@
 #define LCD_WIDTH    320
 #define LCD_HEIGHT   240
 
-//#define DEBUG_PRINTF(...)
-#define DEBUG_PRINTF printf
-
 static unsigned char *imgBuff0;
+#if defined(USE_DISPLAY)
 static struct pi_device ili;
 static pi_buffer_t buffer;
 static pi_buffer_t buffer_out;
+#endif  /* USE_DISPLAY */
 static struct pi_device cam;
 
 L2_MEM unsigned char *ImageOut;
@@ -58,11 +72,9 @@ ArgCluster_T ClusterCall;
 void setCursor(struct pi_device *device,signed short x, signed short y);
 void writeFillRect(struct pi_device *device, unsigned short x, unsigned short y, unsigned short w, unsigned short h, unsigned short color);
 void writeText(struct pi_device *device,char* str,int fontsize);
-#endif  /* USE_DISPLAY */
 
 static int open_display(struct pi_device *device)
 {
-#if defined(USE_DISPLAY)
     struct pi_ili9341_conf ili_conf;
 
     pi_ili9341_conf_init(&ili_conf);
@@ -73,9 +85,9 @@ static int open_display(struct pi_device *device)
     {
         return -1;
     }
-#endif
     return 0;
 }
+#endif  /* USE_DISPLAY */
 
 #if defined(USE_CAMERA)
 #if defined(HIMAX)
@@ -99,7 +111,7 @@ static int open_camera_mt9v034(struct pi_device *device)
   struct pi_mt9v034_conf cam_conf;
 
   pi_mt9v034_conf_init(&cam_conf);
-  cam_conf.format = CAMERA_QVGA;
+  cam_conf.format = PI_CAMERA_QVGA;
 
   pi_open_from_conf(device, &cam_conf);
   if (pi_camera_open(device))
@@ -125,16 +137,18 @@ static int open_camera(struct pi_device *device)
 
 void test_facedetection(void)
 {
-    DEBUG_PRINTF("Entering main controller...\n");
+    printf("Entering main controller...\n");
 
     unsigned int W = CAM_WIDTH, H = CAM_HEIGHT;
     unsigned int Wout = 64, Hout = 48;
     unsigned int ImgSize = W*H;
 
+    pi_freq_set(PI_FREQ_DOMAIN_FC,250000000);
+
     imgBuff0 = (unsigned char *)pmsis_l2_malloc((CAM_WIDTH*CAM_HEIGHT)*sizeof(unsigned char));
     if (imgBuff0 == NULL)
     {
-        DEBUG_PRINTF("Failed to allocate Memory for Image \n");
+        printf("Failed to allocate Memory for Image \n");
         pmsis_exit(-1);
     }
 
@@ -145,32 +159,33 @@ void test_facedetection(void)
 
     if (ImageOut == 0)
     {
-        DEBUG_PRINTF("Failed to allocate Memory for Image (%d bytes)\n", ImgSize*sizeof(unsigned char));
+        printf("Failed to allocate Memory for Image (%d bytes)\n", ImgSize*sizeof(unsigned char));
         pmsis_exit(-2);
     }
     if ((ImageIntegral == 0) || (SquaredImageIntegral == 0))
     {
-        DEBUG_PRINTF("Failed to allocate Memory for one or both Integral Images (%d bytes)\n", ImgSize*sizeof(unsigned int));
+        printf("Failed to allocate Memory for one or both Integral Images (%d bytes)\n", ImgSize*sizeof(unsigned int));
         pmsis_exit(-3);
-  }
-    DEBUG_PRINTF("malloc done\n");
+    }
+    printf("malloc done\n");
 
-    board_init();
-
+    #if defined(USE_DISPLAY)
     if (open_display(&ili))
     {
-        DEBUG_PRINTF("Failed to open display\n");
+        printf("Failed to open display\n");
         pmsis_exit(-4);
     }
-    DEBUG_PRINTF("display done\n");
+    printf("display done\n");
+    #endif  /* USE_DISPLAY */
 
     if (open_camera(&cam))
     {
-        DEBUG_PRINTF("Failed to open camera\n");
+        printf("Failed to open camera\n");
         pmsis_exit(-5);
     }
-    DEBUG_PRINTF("Camera open success\n");
+    printf("Camera open success\n");
 
+    #if defined(USE_DISPLAY)
     #if defined(HIMAX)
     buffer.data = imgBuff0+CAM_WIDTH*2+2;
     buffer.stride = 4;
@@ -183,14 +198,13 @@ void test_facedetection(void)
     pi_buffer_init(&buffer, PI_BUFFER_TYPE_L2, imgBuff0);
     #endif  /* HIMAX */
 
-    #if defined(USE_DISPLAY)
     buffer_out.data = ImageOut;
     buffer_out.stride = 0;
     pi_buffer_init(&buffer_out, PI_BUFFER_TYPE_L2, ImageOut);
     pi_buffer_set_stride(&buffer_out, 0);
-    #endif /* USE_DISPLAY */
 
     pi_buffer_set_format(&buffer, CAM_WIDTH, CAM_HEIGHT, 1, PI_BUFFER_FORMAT_GRAY);
+    #endif /* USE_DISPLAY */
 
     ClusterCall.ImageIn              = imgBuff0;
     ClusterCall.Win                  = W;
@@ -205,14 +219,17 @@ void test_facedetection(void)
     pi_open_from_conf(&cluster_dev, (void*)&conf);
     pi_cluster_open(&cluster_dev);
 
-    task = pmsis_l2_malloc(sizeof(struct pi_cluster_task));
+    //Set Cluster Frequency to max
+    pi_freq_set(PI_FREQ_DOMAIN_CL,175000000);
+
+    task = (struct pi_cluster_task *) pmsis_l2_malloc(sizeof(struct pi_cluster_task));
     memset(task, 0, sizeof(struct pi_cluster_task));
-    task->entry = faceDet_cluster_init;
+    task->entry = (void *)faceDet_cluster_init;
     task->arg = &ClusterCall;
 
     pi_cluster_send_task_to_cl(&cluster_dev, task);
 
-    task->entry = faceDet_cluster_main;
+    task->entry = (void *)faceDet_cluster_main;
     task->arg = &ClusterCall;
 
     #if defined(USE_DISPLAY)
@@ -221,9 +238,10 @@ void test_facedetection(void)
     setCursor(&ili, 0, 0);
     writeText(&ili,"      Greenwaves \n       Technologies", 2);
     #endif  /* USE_DISPLAY */
-    DEBUG_PRINTF("main loop start\n");
+    printf("main loop start\n");
 
-    while (1)
+    int nb_frames = 0;
+    while (1 && (NB_FRAMES == -1 || nb_frames < NB_FRAMES))
     {
         #if defined(USE_CAMERA)
         pi_camera_control(&cam, PI_CAMERA_CMD_START, 0);
@@ -232,7 +250,7 @@ void test_facedetection(void)
         #endif  /* USE_CAMERA */
 
         pi_cluster_send_task_to_cl(&cluster_dev, task);
-        DEBUG_PRINTF("end of face detection, num_reponse: %d\n", ClusterCall.num_reponse);
+        printf("end of face detection, faces detected: %d\n", ClusterCall.num_reponse);
 
         #if defined(USE_DISPLAY)
         pi_display_write(&ili, &buffer_out, 40, 40, 160, 120);
@@ -245,8 +263,10 @@ void test_facedetection(void)
             //sprintf(out_perf_string,"%d  \n%d  %c", (int)((float)(1/(50000000.f/cycles)) * 28000.f),(int)((float)(1/(50000000.f/cycles)) * 16800.f),'\0');
         }
         #endif  /* USE_DISPLAY */
+
+        nb_frames++;
     }
-    DEBUG_PRINTF("Test face detection done.\n");
+    printf("Test face detection done.\n");
     pmsis_exit(0);
 }
 

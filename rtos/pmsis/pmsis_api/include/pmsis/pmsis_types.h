@@ -18,9 +18,7 @@
 #define __PMSIS_TYPES__H__
 
 #include "inttypes.h"
-#ifdef PMSIS_DRIVERS
-#include "pmsis_backend/implementation_specific_defines.h"
-#endif  /* PMSIS_DRIVERS */
+#include "sys/types.h"
 
 /**
  * @defgroup groupDrivers Drivers
@@ -55,7 +53,8 @@ typedef enum {
     PI_DEVICE_SPI_TYPE,
     PI_DEVICE_CPI_TYPE,
     PI_DEVICE_I2C_TYPE,
-    PI_DEVICE_GPIO_TYPE
+    PI_DEVICE_GPIO_TYPE,
+    PI_DEVICE_PWM_TYPE
 } pi_device_e;
 
 typedef struct pi_task pi_task_t;
@@ -103,49 +102,36 @@ typedef int (*open_func_async)(struct pi_device *device,
 typedef int (*close_func_async)(struct pi_device *device, pi_task_t *async);
 
 // pmsis device minimal api: used for basic inheritance
-typedef struct pi_device_api {
+typedef struct pi_device_api
+{
     int (*open)(struct pi_device *device);
     int (*close)(struct pi_device *device);
     int (*open_async)(struct pi_device *device, pi_task_t *async);
     int (*close_async)(struct pi_device *device, pi_task_t *async);
-    uint32_t (*read)(struct pi_device *device,
-            uintptr_t size, const void *addr, const void *buffer, pi_task_t *async);
-    uint32_t (*write)(struct pi_device *device,
-            uint32_t func_id, void *arg, pi_task_t *async);
-    uint32_t (*ioctl)(struct pi_device *device, uint32_t func_id, void *arg);
-    uint32_t (*ioctl_async)(struct pi_device *device,
-            uint32_t func_id, void *arg, pi_task_t *async);
+    ssize_t (*read)(struct pi_device *device, uint32_t ext_addr,
+                    void *buffer, uint32_t size, pi_task_t *async);
+    ssize_t (*write)(struct pi_device *device, uint32_t ext_addr,
+                     const void *buffer, uint32_t size, pi_task_t *async);
+    int (*ioctl)(struct pi_device *device, uint32_t func_id, void *arg);
+    int (*ioctl_async)(struct pi_device *device, uint32_t func_id,
+                       void *arg, pi_task_t *async);
     void *specific_api;
 } pi_device_api_t;
 
-#ifndef IMPLEM_MUTEX_OBJECT_TYPE
-#define IMPLEM_MUTEX_OBJECT_TYPE \
-    void* mutex_object;
-#endif
+/** Memory slab allocator */
+typedef struct pi_mem_slab pi_mem_slab_t;
 
 /** Task types **/
 typedef void (*__pmsis_mutex_func)(void *mutex_object);
 
-typedef struct pmsis_mutex {
-    IMPLEM_MUTEX_OBJECT_TYPE
-    __pmsis_mutex_func take;
-    __pmsis_mutex_func release;
-} pmsis_mutex_t;
-
-
-#ifndef IMPLEM_SEM_OBJECT_TYPE
-#define IMPLEM_SEM_OBJECT_TYPE \
-    void* sem_object;
-#endif
+typedef struct pi_mutex pi_mutex_t;
+// legacy code support
+typedef struct pi_mutex pmsis_mutex_t;
 
 /** Task types **/
 typedef void (*__pi_sem_func)(void *sem_object);
 
-typedef struct pi_sem {
-    IMPLEM_SEM_OBJECT_TYPE
-    __pi_sem_func take;
-    __pi_sem_func give;
-} pi_sem_t;
+typedef struct pi_sem pi_sem_t;
 
 typedef struct pmsis_spinlock {
     uint32_t lock;
@@ -163,30 +149,6 @@ enum pi_task_id {
     PI_TASK_NONE_ID,
 };
 
-#ifdef PMSIS_DRIVERS
-
-#ifndef PI_TASK_IMPLEM
-#define PI_TASK_IMPLEM \
-    int8_t destroy;
-#endif
-
-#ifndef PI_TASK_IMPLEM_NB_DATA
-#define PI_TASK_IMPLEM_NB_DATA 8
-#endif  /* PI_TASK_IMPLEM_NB_DATA */
-
-typedef struct pi_task
-{
-    // Warning, might be accessed inline in asm, and thus can not be moved
-    uintptr_t arg[4];
-    volatile int8_t done;
-    int32_t id;
-    uint32_t data[PI_TASK_IMPLEM_NB_DATA];
-    pi_sem_t wait_on;
-    struct pi_task *next;
-    PI_TASK_IMPLEM;
-} pi_task_t;
-
-#endif
 
 /// @endcond
 #endif

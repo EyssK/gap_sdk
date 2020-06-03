@@ -1,65 +1,54 @@
-# Copyright (C) 2017 GreenWaves Technologies
+# Copyright (C) 2020 GreenWaves Technologies
 # All rights reserved.
 
 # This software may be modified and distributed under the terms
 # of the BSD license.  See the LICENSE file for details.
 
-MODEL_PREFIX=Mnist
-ifndef MNIST_BITS
-  MNIST_BITS=8
-endif
+include common.mk
 
-# LINK_IMAGE=samples/5223_5.pgm
-
-$(info Building emulation mode with $(MNIST_BITS) bit quantization)
-
-# The training of the model is slightly different depending on
-# the quantization. This is because in 8 bit mode we used signed
-# 8 bit so the input to the model needs to be shifted 1 bit
-ifeq ($(MNIST_BITS),8)
-  CFLAGS += -DMNIST_8BIT
-  NNTOOL_SCRIPT=model/nntool_script_emul8
-  MODEL_SUFFIX = _EMUL8BIT
+QUANT_BITS?=8
+BUILD_DIR=BUILD
+ifeq ($(QUANT_BITS), 8)
+	MODEL_SQ8=1
+	NNTOOL_SCRIPT=model/nntool_script_emul
+  	MODEL_SUFFIX = _SQ8BIT_EMUL
 else
-  ifeq ($(MNIST_BITS),16)
-    CFLAGS += -DMNIST_16BIT
+  ifeq ($(QUANT_BITS),16)
     NNTOOL_SCRIPT=model/nntool_script_emul16
-    MODEL_SUFFIX = _EMUL16BIT
+    MODEL_SUFFIX = _16BIT_EMUL
   else
-    $(error Dont know how to build with this bit width)
+    $(error Don\'t know how to build with this bit width)
   endif
 endif
+TRAINED_TFLITE_MODEL=model/$(MODEL_PREFIX).tflite
 
-include model_decl.mk
-
-ifdef LINK_IMAGE
-  LINK_IMAGE_HEADER=$(MODEL_BUILD)/image.h
-  LINK_IMAGE_NAME=$(subst .,_,$(subst /,_,$(LINK_IMAGE)))
-  GAP_FLAGS += -DLINK_IMAGE_HEADER="\"$(LINK_IMAGE_HEADER)\"" -DLINK_IMAGE_NAME="$(LINK_IMAGE_NAME)"
-else
-  LINK_IMAGE_HEADER=
-endif
+include ../common/model_decl.mk
 
 MODEL_GEN_EXTRA_FLAGS= -f $(MODEL_BUILD)
+MODEL_GENFLAGS_EXTRA+=
 CC = gcc
-CFLAGS += -g -O0 -D__EMUL__
-INCLUDES = -I. -Ii./helpers -I$(TILER_EMU_INC) -I$(TILER_INC) -I$(GEN_PATH) -I$(MODEL_BUILD)
+CFLAGS += -g -m32 -O0 -D__EMUL__ -DAT_MODEL_PREFIX=$(MODEL_PREFIX) $(MODEL_SIZE_CFLAGS) -DPERF
+INCLUDES = -I. -I$(TILER_EMU_INC) -I$(TILER_INC) $(CNN_LIB_INCLUDE) -I$(MODEL_BUILD) -I$(MODEL_COMMON_INC)
 LFLAGS =
 LIBS =
-SRCS = Mnist.c ImgIO.c helpers/helpers.c $(MODEL_SRCS)
-
+SRCS = $(MODEL_PREFIX)_emul.c $(MODEL_GEN_C) $(MODEL_COMMON_SRCS) $(CNN_LIB)
+$(info CNN_LIB++ $(CNN_LIB))
+$(info SRCS++ $(SRCS))
 BUILD_DIR = BUILD_EMUL
 
 OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(SRCS))
 
-MAIN = mnist_emul
-
+MAIN = $(MODEL_PREFIX)_emul
 # Here we set the memory allocation for the generated kernels
 # REMEMBER THAT THE L1 MEMORY ALLOCATION MUST INCLUDE SPACE
 # FOR ALLOCATED STACKS!
-MODEL_L1_MEMORY=52000
-MODEL_L2_MEMORY=307200
+CLUSTER_STACK_SIZE=2048
+CLUSTER_SLAVE_STACK_SIZE=1024
+TOTAL_STACK_SIZE=$(shell expr $(CLUSTER_STACK_SIZE) \+ $(CLUSTER_SLAVE_STACK_SIZE) \* 7)
+MODEL_L1_MEMORY=$(shell expr 60000 \- $(TOTAL_STACK_SIZE))
+MODEL_L2_MEMORY=200000
 MODEL_L3_MEMORY=8388608
+
 # hram - HyperBus RAM
 # qspiram - Quad SPI RAM
 MODEL_L3_EXEC=hram
@@ -76,15 +65,10 @@ $(OBJS) : $(BUILD_DIR)/%.o : %.c
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) -MMD -MP $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
 
-ifdef LINK_IMAGE
-$(LINK_IMAGE_HEADER): $(LINK_IMAGE)
-	xxd -i $< $@
-endif
-
 clean: clean_model
 	$(RM) -r $(BUILD_DIR)
 	$(RM) $(MAIN)
 
 .PHONY: depend clean
 
-include model_rules.mk
+include ../common/model_rules.mk

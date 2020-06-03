@@ -35,7 +35,7 @@ class iss_wrapper : public vp::component
 
 public:
 
-  iss_wrapper(const char *config);
+  iss_wrapper(js::config *config);
 
   int build();
   void start();
@@ -61,7 +61,8 @@ public:
   inline int data_req_aligned(iss_addr_t addr, uint8_t *data_ptr, int size, bool is_write);
   int data_misaligned_req(iss_addr_t addr, uint8_t *data_ptr, int size, bool is_write);
 
-  std::string read_user_string(iss_addr_t addr);
+  bool user_access(iss_addr_t addr, uint8_t *data, iss_addr_t size, bool is_write);
+  std::string read_user_string(iss_addr_t addr, int len=-1);
 
   static vp::io_req_status_e dbg_unit_req(void *__this, vp::io_req *req);
 
@@ -72,10 +73,13 @@ public:
   void check_state();
 
   void handle_ebreak();
+  void handle_riscv_ebreak();
 
   void dump_debug_traces();
 
   inline void trigger_check_all() { current_event = check_all_event; }
+
+  void insn_trace_callback();
 
   vp::io_master data;
   vp::io_master fetch;
@@ -147,6 +151,7 @@ private:
 
   int irq_req;
 
+  bool iss_opened;
   int halt_cause;
   int64_t wakeup_latency;
   int bootaddr_offset;
@@ -227,7 +232,7 @@ inline int iss_wrapper::data_req_aligned(iss_addr_t addr, uint8_t *data_ptr, int
   }
   else if (err == vp::IO_REQ_INVALID) 
   {
-    vp_warning_always(&this->warning, "Invalid access (offset: 0x%x, size: 0x%x, is_write: %d)\n", addr, size, is_write);
+    vp_warning_always(&this->warning, "Invalid access (pc: 0x%x, offset: 0x%x, size: 0x%x, is_write: %d)\n", this->cpu.current_insn->addr, addr, size, is_write);
   }
   return err;
 }

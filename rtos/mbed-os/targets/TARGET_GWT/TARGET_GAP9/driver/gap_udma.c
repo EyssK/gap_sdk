@@ -134,6 +134,7 @@ void UDMA_Init(UDMA_Type *base)
     /* Clock gating enable */
     uint32_t index = UDMA_GetInstance(base);
     UDMA_GC->CG |= (1 << index);
+    UDMA_GC->RST |= (1 << index);
 
     /* Attach event unit for end interrupt */
     if(index < UDMA_CHANNEL_NUM) {
@@ -155,6 +156,7 @@ void UDMA_Deinit(UDMA_Type *base)
 
   /* Clock gating disable */
   UDMA_GC->CG &= (~(1 << index));
+  UDMA_GC->RST &= (~(1 << index));
 
   /*  Detach event unit */
   if(index < UDMA_CHANNEL_NUM) {
@@ -323,7 +325,7 @@ static inline void UDMA_RepeatTransfer(udma_req_t *req) {
 
     if((req->info.channelId & 0xFE) == UDMA_EVENT_HYPERBUS_RX) {
         HYPERBUS_Type *hyperbus_ptr = (HYPERBUS_Type *) req->channel->base;
-        hyperbus_ptr->EXT_ADDR = req->info.u.hyperbus.ext_addr + req->info.repeat.size;
+        req->info.u.hyperbus.ext_addr += req->info.repeat.size;
     }
 
     UDMA_Type *base = (UDMA_Type *) req->channel->base;

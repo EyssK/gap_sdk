@@ -19,3 +19,5 @@ udma/archi=2
 soc_eu/version=1
 rtc/version=1
 udma/version=2
+hwce/version=4
+tcdm/version=1
